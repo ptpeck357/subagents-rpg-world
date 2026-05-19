@@ -1,6 +1,6 @@
 # Claude Village
 
-A 3D cozy RPG world where Claude Code subagents are playable NPC characters. Built with Bun + Hono (server) and Three.js (client).
+A 2D top-down (3/4 oblique, Lords of Xulima–style) RPG world where Claude Code subagents are NPCs you can walk up to. Built with Bun + Hono (server) and vanilla HTML5 Canvas 2D (client) — no framework, no build step.
 
 ## Project layout
 
@@ -8,7 +8,8 @@ A 3D cozy RPG world where Claude Code subagents are playable NPC characters. Bui
 claude-village/
 ├── server.ts          # Bun + Hono API server (file scanner + Anthropic proxy)
 ├── public/
-│   └── index.html     # Three.js game (single file, no build step)
+│   ├── index.html     # 2D canvas game (single file, no build step)
+│   └── sprites/       # Drop PNG sprites here (filename = sprite key, e.g. building_api.png)
 ├── subagents/         # Local agent source (dir-per-category, .md per agent)
 ├── skills/            # Local skill source (dir-per-skill, SKILL.md inside)
 ├── CLAUDE.md
@@ -19,8 +20,9 @@ claude-village/
 
 - **Runtime**: Bun (not Node)
 - **Server**: Hono — keep it minimal, no extra middleware
-- **Frontend**: Vanilla JS + Three.js r128 via CDN, no framework, no bundler
+- **Frontend**: Vanilla JS + HTML5 Canvas 2D, no framework, no bundler, no CDN deps
 - **Language**: TypeScript on the server, plain JS in the HTML file
+- **Art**: PNGs in `public/sprites/`; engine falls back to colored placeholder rects when a sprite file is absent
 
 ## Commands
 
@@ -70,25 +72,37 @@ type Skill = {
 - No `npm` — use `bun add` / `bun remove`
 - Keep `server.ts` lean (~120 line ceiling); if it grows beyond that, something is wrong
 - The HTML file is self-contained — only the three `/api/*` endpoints from this server
-- Three.js scene logic lives entirely in `public/index.html`
+- All 2D rendering and game logic lives in `public/index.html`
+- Sprites: PNG files in `public/sprites/`, anchored bottom-center, drawn with painter's-algorithm sort by Y
 
 ## Village layout
 
 The world reflects the directory tree under `subagents/`:
 
 - **Each top-level dir is a building** named after the dir (e.g. `payments/` → "PAYMENTS" building)
-- **Each second-level dir is a table inside that building** (e.g. `database/mysql/` → "mysql" table inside the DATABASE building)
-- **Each `.md` agent file is an NPC** sitting/wandering near its table (or building center if no nested subdir)
-- **Skills live in a dedicated "Skill Hut"** 8th building, one item per skill on shelves
+- **Each second-level dir is a table** placed in the yard in front of that building (e.g. `database/mysql/` → "mysql" table in front of the DATABASE building)
+- **Each `.md` agent file is an NPC** clustering around its table (or the building yard if no nested subdir)
+- **Skills live in a dedicated "Skill Hut"** 8th building with skill items lined up out front
 
-Buildings arrange evenly in a ring around a central plaza. NPC seat positions are deterministic — agents sorted by `id` then placed by index, so reruns produce the same layout.
+Buildings arrange evenly in a ring around a central plaza. NPC home positions are deterministic — agents sorted by `id` then placed by index, so reruns produce the same layout.
 
 ## Agent character system
 
-- `name` (parsed H1) → label above NPC
-- `description` (first paragraph) → role subtitle shown when player approaches
+- `name` (parsed H1) → label above NPC when nearest to player
+- `description` (first paragraph) → role subtitle shown in the bottom proximity bubble
 - `content` (full markdown) → system prompt for `/api/chat`
-- NPCs idle-wander in a small radius around their seat and face the player on approach
+- NPCs idle-wander in a small radius around their home position
+
+## Sprite naming
+
+The engine looks for `/sprites/<key>.png`. Current keys it tries to load:
+
+- `building_<category>` (e.g. `building_payments.png`, `building_database.png`) and `building_skills`
+- `npc_default` — fallback for every agent (per-agent sprites optional later)
+- `player`
+- `tree`, `rock`, `flower`, `table`, `skill_item`
+
+Anchor each PNG at bottom-center. Recommended sizes match the placeholder dimensions in `defineSprite()` calls. Missing PNGs render as labeled colored rects so the game stays playable while art is in flight.
 
 ## What NOT to do
 
