@@ -1,0 +1,17 @@
+{
+  "name": "subagents-rpg-world",
+  "module": "server.ts",
+  "type": "module",
+  "scripts": {
+    "start": "bun run --watch server.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "hono": "^4.12.19"
+  }
+}

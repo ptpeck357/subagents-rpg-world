@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Claude Village</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; font-family: ui-sans-serif, system-ui, sans-serif; background: #87ceeb; }
+  #hud {
+    position: fixed; top: 12px; left: 12px; padding: 8px 12px;
+    background: rgba(0,0,0,0.5); color: #fff; border-radius: 8px;
+    font-size: 12px; line-height: 1.5; pointer-events: none;
+  }
+  #nearby {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.7); color: #fff; padding: 8px 16px;
+    border-radius: 8px; font-size: 13px; display: none; max-width: 80vw; text-align: center;
+  }
+  #loading {
+    position: fixed; inset: 0; display: grid; place-items: center;
+    background: #87ceeb; color: #222; font-size: 18px; z-index: 10;
+  }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<div id="loading">Loading village…</div>
+<div id="hud">
+  WASD / arrows to walk · Shift to run<br/>
+  Walk up to an NPC to see who they are
+</div>
+<div id="nearby"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(async function () {
+  const THREE = window.THREE;
+
+  const [agentsRes, skillsRes] = await Promise.all([
+    fetch("/api/agents").then(r => r.json()),
+    fetch("/api/skills").then(r => r.json()),
+  ]);
+
+  const byCategory = {};
+  for (const a of agentsRes) (byCategory[a.category] ||= []).push(a);
+  const categories = Object.keys(byCategory).sort();
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x87ceeb);
+  scene.fog = new THREE.Fog(0x87ceeb, 60, 160);
+
+  const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 500);
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+  renderer.shadowMap.enabled = true;
+  document.body.appendChild(renderer.domElement);
+
+  addEventListener("resize", () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.85);
+  sun.position.set(40, 60, 20);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.camera.left = -100;
+  sun.shadow.camera.right = 100;
+  sun.shadow.camera.top = 100;
+  sun.shadow.camera.bottom = -100;
+  scene.add(sun);
+
+  function makeLabel(text, color = "#fff", bg = "rgba(0,0,0,0.6)") {
+    const canvas = document.createElement("canvas");
+    canvas.width = 512; canvas.height = 128;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = color;
+    ctx.font = "bold 56px ui-sans-serif, system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.needsUpdate = true;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+    sprite.scale.set(6, 1.5, 1);
+    return sprite;
+  }
+
+  function hashColor(str, sat = 0.55, light = 0.55) {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) % 360;
+    return new THREE.Color().setHSL(h / 360, sat, light);
+  }
+
+  function buildTerrain() {
+    const geo = new THREE.PlaneGeometry(300, 300, 80, 80);
+    geo.rotateX(-Math.PI / 2);
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), z = pos.getZ(i);
+      const d = Math.sqrt(x * x + z * z);
+      const ripple = d > 25 ? Math.sin(x * 0.2) * 0.3 + Math.cos(z * 0.2) * 0.3 : 0;
+      pos.setY(i, ripple);
+    }
+    geo.computeVertexNormals();
+    const ground = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0x6cbf6a }));
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    const plaza = new THREE.Mesh(
+      new THREE.CircleGeometry(8, 32),
+      new THREE.MeshLambertMaterial({ color: 0xc9b58f })
+    );
+    plaza.rotation.x = -Math.PI / 2;
+    plaza.position.y = 0.01;
+    plaza.receiveShadow = true;
+    scene.add(plaza);
+  }
+
+  const buildings = [];
+  const npcs = [];
+
+  function buildBuilding(label, position, agents, colorHex) {
+    const group = new THREE.Group();
+    group.position.copy(position);
+
+    const w = 10, d = 10, h = 5;
+    const walls = new THREE.Mesh(
+      new THREE.BoxGeometry(w, h, d),
+      new THREE.MeshLambertMaterial({ color: colorHex })
+    );
+    walls.position.y = h / 2;
+    walls.castShadow = true;
+    walls.receiveShadow = true;
+    group.add(walls);
+
+    const roof = new THREE.Mesh(
+      new THREE.ConeGeometry(8, 3, 4),
+      new THREE.MeshLambertMaterial({ color: 0x8b4513 })
+    );
+    roof.position.y = h + 1.5;
+    roof.rotation.y = Math.PI / 4;
+    roof.castShadow = true;
+    group.add(roof);
+
+    const door = new THREE.Mesh(
+      new THREE.BoxGeometry(1.6, 2.6, 0.1),
+      new THREE.MeshLambertMaterial({ color: 0x4a2c1a })
+    );
+    door.position.set(0, 1.3, d / 2 + 0.05);
+    group.add(door);
+
+    const sign = makeLabel(label.toUpperCase(), "#fff", "rgba(40,40,40,0.85)");
+    sign.position.set(0, h + 4, 0);
+    sign.scale.set(8, 2, 1);
+    group.add(sign);
+
+    scene.add(group);
+    buildings.push({ name: label, position: position.clone(), radius: 7 });
+
+    const groups = {};
+    for (const a of agents) (groups[a.subcategory || "_main"] ||= []).push(a);
+    const subKeys = Object.keys(groups);
+
+    const tablePositions = [];
+    if (subKeys.length === 1 && subKeys[0] === "_main") {
+      tablePositions.push({ key: "_main", pos: new THREE.Vector3(0, 0, 0) });
+    } else {
+      const r = 2.6;
+      subKeys.forEach((k, i) => {
+        const angle = (i / subKeys.length) * Math.PI * 2;
+        tablePositions.push({ key: k, pos: new THREE.Vector3(Math.cos(angle) * r, 0, Math.sin(angle) * r) });
+      });
+    }
+
+    for (const { key, pos } of tablePositions) {
+      const localAgents = groups[key];
+      if (key !== "_main") {
+        const tableTop = new THREE.Mesh(
+          new THREE.BoxGeometry(2.2, 0.15, 2.2),
+          new THREE.MeshLambertMaterial({ color: 0x6b4423 })
+        );
+        tableTop.position.set(pos.x, 0.9, pos.z);
+        tableTop.castShadow = true;
+        group.add(tableTop);
+        const leg = new THREE.Mesh(
+          new THREE.BoxGeometry(0.2, 0.85, 0.2),
+          new THREE.MeshLambertMaterial({ color: 0x4a2c1a })
+        );
+        leg.position.set(pos.x, 0.45, pos.z);
+        group.add(leg);
+        const tlabel = makeLabel(key, "#fff", "rgba(0,0,0,0.7)");
+        tlabel.position.set(pos.x, 2.2, pos.z);
+        tlabel.scale.set(3, 0.8, 1);
+        group.add(tlabel);
+      }
+
+      localAgents.forEach((agent, i) => {
+        const angle = (i / localAgents.length) * Math.PI * 2;
+        const seatR = key === "_main" ? 3 : 1.6;
+        const local = new THREE.Vector3(pos.x + Math.cos(angle) * seatR, 0, pos.z + Math.sin(angle) * seatR);
+        buildNPC(agent, local.clone().add(position));
+      });
+    }
+  }
+
+  function buildNPC(agent, home) {
+    const group = new THREE.Group();
+    group.position.copy(home);
+
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(0.7, 1.0, 0.5),
+      new THREE.MeshLambertMaterial({ color: hashColor(agent.id) })
+    );
+    body.position.y = 0.9;
+    body.castShadow = true;
+    group.add(body);
+
+    const head = new THREE.Mesh(
+      new THREE.BoxGeometry(0.55, 0.55, 0.55),
+      new THREE.MeshLambertMaterial({ color: 0xfcd9b6 })
+    );
+    head.position.y = 1.7;
+    head.castShadow = true;
+    group.add(head);
+
+    const label = makeLabel(agent.name, "#fff", "rgba(0,0,0,0.55)");
+    label.position.y = 2.5;
+    label.scale.set(4.5, 1.1, 1);
+    group.add(label);
+
+    scene.add(group);
+    npcs.push({
+      mesh: group,
+      body,
+      home: home.clone(),
+      agent,
+      seed: (Math.sin(home.x * 37 + home.z * 13) + 1) * Math.PI,
+    });
+  }
+
+  function buildSkillHut(skills, position) {
+    const group = new THREE.Group();
+    group.position.copy(position);
+
+    const walls = new THREE.Mesh(
+      new THREE.BoxGeometry(8, 4, 8),
+      new THREE.MeshLambertMaterial({ color: 0xddc080 })
+    );
+    walls.position.y = 2;
+    walls.castShadow = true;
+    walls.receiveShadow = true;
+    group.add(walls);
+
+    const roof = new THREE.Mesh(
+      new THREE.ConeGeometry(6.5, 2.5, 4),
+      new THREE.MeshLambertMaterial({ color: 0x6b4423 })
+    );
+    roof.position.y = 5.25;
+    roof.rotation.y = Math.PI / 4;
+    group.add(roof);
+
+    const sign = makeLabel("SKILL HUT", "#fff", "rgba(60,40,20,0.9)");
+    sign.position.set(0, 8, 0);
+    sign.scale.set(7, 1.8, 1);
+    group.add(sign);
+
+    skills.forEach((skill, i) => {
+      const x = (i - (skills.length - 1) / 2) * 2.2;
+      const shelf = new THREE.Mesh(
+        new THREE.BoxGeometry(1.6, 0.15, 1.0),
+        new THREE.MeshLambertMaterial({ color: 0x4a2c1a })
+      );
+      shelf.position.set(x, 1.2, 0);
+      group.add(shelf);
+
+      const item = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(0.5, 0),
+        new THREE.MeshLambertMaterial({ color: hashColor(skill.id, 0.7, 0.6), emissive: 0x222200 })
+      );
+      item.position.set(x, 1.9, 0);
+      item.castShadow = true;
+      group.add(item);
+
+      const lbl = makeLabel(skill.name, "#fff", "rgba(0,0,0,0.65)");
+      lbl.position.set(x, 2.9, 0);
+      lbl.scale.set(3.5, 0.9, 1);
+      group.add(lbl);
+    });
+
+    scene.add(group);
+    buildings.push({ name: "Skill Hut", position: position.clone(), radius: 6 });
+  }
+
+  function buildVillage() {
+    const total = categories.length + 1;
+    const radius = 32;
+    categories.forEach((cat, i) => {
+      const angle = (i / total) * Math.PI * 2;
+      const pos = new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+      buildBuilding(cat, pos, byCategory[cat], hashColor(cat, 0.45, 0.65).getHex());
+    });
+    const skillAngle = (categories.length / total) * Math.PI * 2;
+    buildSkillHut(skillsRes, new THREE.Vector3(Math.cos(skillAngle) * radius, 0, Math.sin(skillAngle) * radius));
+  }
+
+  const player = new THREE.Group();
+  {
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(0.8, 1.1, 0.55),
+      new THREE.MeshLambertMaterial({ color: 0x3366cc })
+    );
+    body.position.y = 0.95;
+    body.castShadow = true;
+    player.add(body);
+    const head = new THREE.Mesh(
+      new THREE.BoxGeometry(0.6, 0.6, 0.6),
+      new THREE.MeshLambertMaterial({ color: 0xfcd9b6 })
+    );
+    head.position.y = 1.8;
+    head.castShadow = true;
+    player.add(head);
+  }
+  scene.add(player);
+
+  const keys = {};
+  addEventListener("keydown", (e) => (keys[e.key.toLowerCase()] = true));
+  addEventListener("keyup", (e) => (keys[e.key.toLowerCase()] = false));
+
+  buildTerrain();
+  buildVillage();
+  document.getElementById("loading").remove();
+
+  const nearbyEl = document.getElementById("nearby");
+  const tmp = new THREE.Vector3();
+  let last = performance.now();
+
+  function tick(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+
+    let mx = 0, mz = 0;
+    if (keys["w"] || keys["arrowup"]) mz -= 1;
+    if (keys["s"] || keys["arrowdown"]) mz += 1;
+    if (keys["a"] || keys["arrowleft"]) mx -= 1;
+    if (keys["d"] || keys["arrowright"]) mx += 1;
+    const speed = (keys["shift"] ? 12 : 6) * dt;
+    const len = Math.hypot(mx, mz);
+    if (len > 0) {
+      mx /= len; mz /= len;
+      player.rotation.y = Math.atan2(mx, mz) + Math.PI;
+      const nx = player.position.x + mx * speed;
+      const nz = player.position.z + mz * speed;
+      let blocked = false;
+      for (const b of buildings) {
+        const dx = nx - b.position.x, dz = nz - b.position.z;
+        if (Math.hypot(dx, dz) < b.radius - 2.5) { blocked = true; break; }
+      }
+      if (!blocked) {
+        player.position.x = nx;
+        player.position.z = nz;
+      }
+    }
+
+    const camDist = 8, camHeight = 5;
+    const targetCamX = player.position.x - Math.sin(player.rotation.y) * camDist;
+    const targetCamZ = player.position.z - Math.cos(player.rotation.y) * camDist;
+    camera.position.x += (targetCamX - camera.position.x) * 0.12;
+    camera.position.z += (targetCamZ - camera.position.z) * 0.12;
+    camera.position.y += (camHeight - camera.position.y) * 0.12;
+    camera.lookAt(player.position.x, player.position.y + 1.2, player.position.z);
+
+    let nearest = null, nearestDist = 6;
+    for (const npc of npcs) {
+      const t = now * 0.0005 + npc.seed;
+      npc.mesh.position.x = npc.home.x + Math.cos(t) * 1.2;
+      npc.mesh.position.z = npc.home.z + Math.sin(t * 1.3) * 1.2;
+      npc.body.position.y = 0.9 + Math.sin(t * 4) * 0.05;
+      npc.mesh.rotation.y = Math.atan2(player.position.x - npc.mesh.position.x, player.position.z - npc.mesh.position.z);
+
+      tmp.copy(npc.mesh.position).sub(player.position);
+      const d = tmp.length();
+      if (d < nearestDist) { nearestDist = d; nearest = npc; }
+    }
+
+    if (nearest) {
+      nearbyEl.style.display = "block";
+      nearbyEl.textContent = `${nearest.agent.name} — ${nearest.agent.description || nearest.agent.category}`;
+    } else {
+      nearbyEl.style.display = "none";
+    }
+
+    renderer.render(scene, camera);
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
