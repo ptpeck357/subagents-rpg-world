@@ -45,7 +45,7 @@ Auth for chat: SDK picks whatever is available. Before 2026-06-15, set `ANTHROPI
 |---|---|---|
 | `GET` | `/api/agents` | Recursive scan of `./subagents/**/*.md`, returns parsed agents with category/subcategory |
 | `GET` | `/api/skills` | Recursive scan of `./skills/**/SKILL.md`, returns parsed skills |
-| `POST` | `/api/chat` | Runs Agent SDK `query()` with `{agentId, system, message}`; streams chunks back as SSE (`data: {"type":"chunk","text":...}`). Maintains per-NPC SDK session resume keyed by `agentId` in an in-memory Map. |
+| `POST` | `/api/chat` | Runs Agent SDK `query()` with `{agentId, system, message}`; streams chunks back as SSE (`data: {"type":"chunk","text":...}`). Maintains per-NPC SDK session resume keyed by `agentId` in an in-memory Map. Before the SDK call, `relevantSkills()` keyword-matches loaded skills against the agent's `system` text and appends matches under a `# Relevant skills` heading. |
 | `POST` | `/api/chat/reset` | Deletes the cached session id for an `agentId` so the next chat starts a fresh thread. |
 | `GET` | `/*` | Static serve from `./public/` |
 

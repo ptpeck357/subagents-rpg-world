@@ -8,6 +8,40 @@ Project tracker for Claude Code. Update this file as tasks move through states.
 
 ---
 
+## Session Handoff
+
+**Last touched:** 2026-05-19.
+
+**State of the world:** village is playable end-to-end with placeholders. Walk in, enter any of 8 buildings, talk to NPCs (SDK-backed chat), read skills (modal). Tailwind for UI. TypeScript on both server and client (client transpiled on the fly by Bun).
+
+**Shipped this session:**
+- Phase 5 — skill modal + agent prompts auto-enriched with keyword-matched skills (`relevantSkills()` in `server.ts`)
+- Phase 8 — `game.js` → `game.ts`, server-side `Bun.Transpiler` route at `/game.js`, full type annotations
+- Phase 9 plan documented but **not yet implemented** (seamless `/village` slash command from any project)
+- Frontend file split + Tailwind migration (`game.js` extracted, Tailwind Play CDN)
+- World tightened to fit 1280×768 viewport with zero scrolling
+- Build-step / CDN restrictions lifted in CLAUDE.md (no longer "no bundler, no CDN")
+
+**Next session should start with:** Phase 9 (seamless invocation). Tiny — three sub-tasks listed in the Phase 9 section. Single biggest UX unlock left.
+
+**Open prerequisites that block other work:**
+- Chat won't actually return responses until `ANTHROPIC_API_KEY` is set in `.env` (today's path) — or until 2026-06-15 when the SDK runs on the Pro plan's free credit via `claude setup-token`. Server gracefully returns the SDK error if unset.
+- Sprite art (Phase 2/3 placeholders) waits on PNGs being dropped into `public/sprites/`.
+
+**Active gotchas to remember:**
+- `Bun.file()` has **no** `.stat()` method — use `BunFile.lastModified` (epoch ms) for mtime
+- Background-session isolation guard is **off** for this repo via `.claude/settings.json` — don't re-enable unless you intentionally want bg sessions to clone into a worktree
+- `Agent` and `Skill` types are duplicated in `server.ts` + `public/game.ts` on purpose (no shared types file; no module system on client)
+- Chat panel show/hide MUST use the `showChat`/`hideChat` helpers (Tailwind `hidden` ↔ `flex` swap), not direct `style.display`
+- The `bgIsolation: none` setting means edits land in the shared checkout — be deliberate about destructive ops
+
+**Pending decisions parked:**
+- Per-agent NPC sprites: naming convention `npc_<id>.png` → `npc_default.png` fallback? Not yet implemented.
+- localStorage chat history persistence: skipped for now; in-memory only.
+- Splitting `game.ts` into modules + `bun build`: defer until file crosses ~1000 lines.
+
+---
+
 ## Priority order (what to work on next)
 
 Phases 1, 2, 3, 4, 7, 8 are largely shipped — see their sections for residual checkboxes. What's open, in the order it should be tackled:
@@ -86,7 +120,7 @@ Phases 1, 2, 3, 4, 7, 8 are largely shipped — see their sections for residual 
 - [x] `GET /api/skills` fetched on load
 - [x] Skills rendered as items on shelves inside the Skill Hut
 - [x] Walk near a skill item + press **E** → modal opens with name, description, full content. **Esc** or click outside closes. Movement pauses while open.
-- [ ] Agent chat system prompt optionally references relevant skills
+- [x] Agent chat system prompt automatically references relevant skills. `server.ts/relevantSkills()` keyword-matches skill `id` + `name` tokens (filtered to length > 3, minus generic stop words like "skill") against the agent's persona text. Matched skills are appended under a `# Relevant skills` heading before the SDK call. Today: Stripe-flavored agents pick up `stripe-safety`; agents mentioning "secret" pick up `secret-scan`.
 
 ## Phase 6 — Polish
 

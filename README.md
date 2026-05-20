@@ -70,7 +70,7 @@ Anchor each sprite at bottom-center. Recommended sizes are written next to each 
 |---|---|---|
 | `GET` | `/api/agents` | Recursive scan of `./subagents/**/*.md` |
 | `GET` | `/api/skills` | Recursive scan of `./skills/**/SKILL.md` |
-| `POST` | `/api/chat` | SSE stream — runs the Claude Agent SDK with the NPC's `.md` body as system prompt; keeps the API key / OAuth token off the browser |
+| `POST` | `/api/chat` | SSE stream — runs the Claude Agent SDK with the NPC's `.md` body as system prompt, automatically appending any **keyword-matched skills** from `skills/` under a `# Relevant skills` heading. API key / OAuth token stays server-side. |
 | `POST` | `/api/chat/reset` | Clears the per-NPC SDK session id so the next chat starts fresh |
 
 Parsing has no YAML frontmatter: the first `# H1` is the name, the next paragraph is the description.

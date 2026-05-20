@@ -83,16 +83,35 @@ app.get("/api/skills", async (c) => c.json(await loadSkills()));
 // Per-NPC conversation memory: agentId → SDK session id
 const sessions = new Map<string, string>();
 
+// Keyword-match skills to an agent's system prompt. Generic words filtered out.
+const SKILL_STOP_WORDS = new Set(["skill", "skills", "with", "into", "from", "this", "that"]);
+async function relevantSkills(agentSystem: string): Promise<Skill[]> {
+  const skills = await loadSkills();
+  const haystack = agentSystem.toLowerCase();
+  return skills.filter((s) => {
+    const tokens = [
+      ...s.id.split(/[-_]/),
+      ...s.name.toLowerCase().split(/\s+/),
+    ].filter((t) => t.length > 3 && !SKILL_STOP_WORDS.has(t));
+    return tokens.some((t) => haystack.includes(t));
+  });
+}
+
 app.post("/api/chat", async (c) => {
   const body = await c.req.json() as { agentId: string; system: string; message: string };
   const { agentId, system, message } = body;
   if (!agentId || !message) return c.json({ error: "agentId and message required" }, 400);
 
+  const skills = await relevantSkills(system);
+  const enrichedSystem = skills.length
+    ? `${system}\n\n---\n\n# Relevant skills\n\nThe following skills are applicable to this conversation. Apply them when their guidance is relevant.\n\n${skills.map((s) => `## ${s.name}\n\n${s.content}`).join("\n\n")}`
+    : system;
+
   const resume = sessions.get(agentId);
   const stream = query({
     prompt: message,
     options: {
-      systemPrompt: system,
+      systemPrompt: enrichedSystem,
       ...(resume ? { resume } : {}),
     },
   });
