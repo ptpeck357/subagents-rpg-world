@@ -4,6 +4,21 @@ Project tracker for Claude Code. Update this file as tasks move through states.
 
 **Note:** the original Three.js plan was swapped for a 2D top-down (Lords of Xulima–style) canvas renderer. Phase 2 / 3 items below were re-done in 2D.
 
+> Phase numbers below are **historical** — they reflect when work was decided, not the order to execute. For current execution order, see *Priority order* immediately below.
+
+---
+
+## Priority order (what to work on next)
+
+Phases 1, 2, 3, 4, 7, 8 are largely shipped — see their sections for residual checkboxes. What's open, in the order it should be tackled:
+
+1. **Phase 9 — Seamless invocation.** `bun link` + global slash commands + portable paths. Makes `/village` work from any Claude Code session in any project. Tiny implementation, huge UX win — do this first because it unblocks daily use of everything else built so far.
+2. **Phase 6 — error state when `./subagents/` is missing or empty.** Cheap defensive work; prevents confusing first-clone failures.
+3. **Phase 5 — skill modal click + agent prompts referencing skills.** Small but visible features.
+4. **Phase 7 follow-up — June 15 OAuth swap.** Calendar-gated. As soon as 2026-06-15 lands: remove `ANTHROPIC_API_KEY` requirement, document `claude setup-token`, point users at Pro plan included credit.
+5. **Phase 2/3 — real sprite PNG art + walk-cycle frames + nearest-NPC highlight.** Blocked on actual art assets being dropped into `public/sprites/`. Move up the list when that lands.
+6. **Phase 6 — day/night cycle, ambient sound, mobile touch controls.** Real polish; do last.
+
 ---
 
 ## Status key
@@ -21,7 +36,7 @@ Project tracker for Claude Code. Update this file as tasks move through states.
 - [x] Scaffold repo: `server.ts`, `public/index.html`, `CLAUDE.md`, `planner.md`
 - [x] Implement `GET /api/agents` — scan `./subagents/**/*.md`, parse H1 + first paragraph
 - [x] Implement `GET /api/skills` — scan `./skills/**/SKILL.md`, parse H1 + first paragraph
-- [x] Add `POST /api/chat` — server-side proxy to Anthropic using `ANTHROPIC_API_KEY`
+- [x] Add `POST /api/chat` — server-side Agent SDK call streaming via SSE (was originally a direct Anthropic proxy; superseded by Phase 7)
 - [x] Serve `public/index.html` as catch-all from Hono
 - [x] Verify server starts with `bun start`
 
@@ -35,7 +50,7 @@ Project tracker for Claude Code. Update this file as tasks move through states.
 - [x] Camera follows player, clamped to world bounds
 - [x] WASD / arrow key movement with axis-separated collision
 - [x] Scatter trees / rocks / flowers across the map
-- [x] Pond with sand rim
+- [x] ~~Pond with sand rim~~ — built then removed when world shrank to fit 1280×800
 - [x] Door trigger zones on each building; enter to switch into interior scene
 - [x] Interior scene: wood-plank floor, walls, tables (per nested subdir), NPCs around tables
 - [x] Hide NPCs in village view; they only appear inside their building
@@ -55,21 +70,22 @@ Project tracker for Claude Code. Update this file as tasks move through states.
 - [ ] Walk-cycle frames on NPC drift movement
 - [ ] Highlight effect (outline / glow) on nearest NPC
 
-## Phase 4 — Chat system
+## Phase 4 — Chat system (shipped via Phase 7 with the SDK)
 
-- [ ] Chat panel (right sidebar): portrait, name, role, message history, input
-- [ ] On proximity: activate agent, show greeting (first paragraph) or generated
-- [ ] Send message → `POST /api/chat` (server proxies to Anthropic; key stays server-side)
-- [ ] System prompt = agent `.md` body content
-- [ ] Conversation history persisted per agent for session duration
-- [ ] Typing indicator while awaiting response
-- [ ] On walk-away: panel resets, history preserved in memory for return
+- [x] Chat panel (right sidebar): name, role, message history, input
+- [x] On proximity: **E** key opens the agent with their `.md` body as system prompt
+- [x] Send message → `POST /api/chat` (Agent SDK; key/token stays server-side)
+- [x] System prompt = agent `.md` body content
+- [x] Conversation history persisted per agent for session duration (in-memory `histories` Map in `game.js`)
+- [x] Typing indicator while awaiting response
+- [x] On walk-away: panel closes via **Esc**, history preserved in memory for return
+- [ ] Portrait sprite next to name (still uses placeholder color)
 
 ## Phase 5 — Skills integration
 
 - [x] `GET /api/skills` fetched on load
 - [x] Skills rendered as items on shelves inside the Skill Hut
-- [ ] Clicking a skill item shows its content in a modal or side panel
+- [x] Walk near a skill item + press **E** → modal opens with name, description, full content. **Esc** or click outside closes. Movement pauses while open.
 - [ ] Agent chat system prompt optionally references relevant skills
 
 ## Phase 6 — Polish
@@ -78,7 +94,7 @@ Project tracker for Claude Code. Update this file as tasks move through states.
 - [ ] Idle NPC animations (head bob, look-around)
 - [ ] Sound: soft ambient background (optional, user-toggled)
 - [ ] Mobile touch controls (virtual joystick)
-- [x] Loading screen while Three.js and API agents initialise
+- [x] Loading screen while canvas and API agents initialise
 - [ ] Error state when `./subagents/` directory is missing or empty
 
 ---
@@ -126,12 +142,25 @@ Both reuse Claude Code's existing login → zero API key needed. SDK is cleaner 
 - [x] Rewrite `POST /api/chat` against the SDK; stream chunks back as SSE
 - [x] Pass NPC `.md` body content as `options.systemPrompt`
 - [x] Per-NPC conversation memory via SDK `resume: <session_id>` in `Map<agentId, sessionId>`
-- [x] Add `package.json` `"bin": { "claude-village": "./server.ts" }` + `#!/usr/bin/env bun` shebang + `chmod +x`
+- [x] Add `package.json` `"bin": { "claude-village": "./server.ts" }` + `#!/usr/bin/env bun` shebang + `chmod +x` — kept for local `bun link` even though we won't publish
 - [x] After server boots, auto-open default browser (`open` / `xdg-open` / `start` per platform); `CLAUDE_VILLAGE_NO_OPEN=1` to disable
 - [x] Browser-side chat panel: right sidebar, **E** opens nearest-NPC chat, **Esc** closes, per-NPC history kept client-side, SSE streaming render, reset button
-- [ ] Replace `ANTHROPIC_API_KEY` requirement: after June 15, 2026 — remove env check, document `claude setup-token` long-lived OAuth path
-- [ ] Publish (npm or `bunx github:…`) so the install story is one command
-- [ ] Update `README.md`: prereqs, run command, dual auth paths
+- [x] `POST /api/chat/reset` endpoint — clears the per-NPC SDK session id on demand so the next chat starts a fresh thread (paired with the chat panel's reset button)
+- [ ] Replace `ANTHROPIC_API_KEY` requirement: after June 15, 2026 — remove env check, document `claude setup-token` long-lived OAuth path. Also pass the long-lived token to the SDK explicitly so it never reuses the parent Claude Code session's short-lived OAuth (see "Auth verification" below).
+- [x] Update `README.md`: prereqs, run command, dual auth paths
+
+### Distribution model (locked: clone-only, no npm publish)
+
+Users do:
+
+```bash
+git clone <repo>
+cd subagents-rpg-world
+bun install
+bun start                # or `bun link` once, then `claude-village` from anywhere
+```
+
+No `npm publish`, no `bunx`. Means: no build artifacts in the repo, no minification, no version-bump dance. The cost of editing source is the cost of pulling.
 
 ### Dual auth modes (transition period)
 
@@ -183,6 +212,78 @@ Decision implication: this **pushes the SDK option ahead of `claude -p`**, becau
 - [Agent SDK Dual-Bucket Billing: What Changes June 15, 2026](https://tygartmedia.com/claude-agent-sdk-dual-bucket-billing-june-2026/)
 - [How to Use the Claude Agent SDK With Your Claude Plan? — apidog](https://apidog.com/blog/claude-agent-sdk-with-claude-plan-setup-guide/)
 
+## Frontend file split + Tailwind (shipped between Phase 7 and Phase 8)
+
+- [x] Extract game logic out of `public/index.html` into its own file (`public/game.js`, later `public/game.ts`)
+- [x] Replace inline CSS with **Tailwind via Play CDN** (single `<script src="https://cdn.tailwindcss.com">`). All non-dynamic styling lives in markup classes; dynamic chat-message styling is computed from a tiny `MSG_VARIANT` map in TS
+- [x] Tiny `<style>` block kept in `index.html` for `canvas { image-rendering: pixelated }` — Tailwind has no utility for it
+- [x] `index.html` is now a thin shell: HTML scaffolding, Tailwind classes, two script tags (Tailwind CDN + `/game.js`)
+- [x] Helper fns (`showChat`/`hideChat`/`showNearby`/`hideNearby`) swap Tailwind `hidden`/`flex` classes instead of inline `style.display`
+
+## Phase 9 — Seamless invocation from any Claude Code session
+
+Goal: `/village` from inside any project, in any Claude Code session, opens the village in your browser. `/village-stop` kills it. No second terminal, no `cd` into this repo, no manual `bun start`.
+
+### Setup story (one-time, ~30 seconds)
+
+```bash
+cd path/to/subagents-rpg-world
+bun link                                                       # makes `claude-village` global in $PATH
+mkdir -p ~/.claude/commands
+ln -s "$(pwd)/.claude/commands/village.md"      ~/.claude/commands/village.md
+ln -s "$(pwd)/.claude/commands/village-stop.md" ~/.claude/commands/village-stop.md
+```
+
+### Daily flow (zero friction after setup)
+
+```
+(inside Claude Code, any project, any terminal)
+
+/village          # boots server, opens browser, backgrounded
+/village-stop     # kills the process on :3000
+```
+
+### Tasks
+
+- [ ] **Portable paths in `server.ts`**: resolve `./subagents` and `./skills` relative to `import.meta.dir` (the installed binary's location) instead of `process.cwd()`. ~3 lines. Without this, `claude-village` outside the repo dir gives an empty village.
+- [ ] Create `.claude/commands/village.md` — backgrounded launch: `!nohup claude-village >/tmp/claude-village.log 2>&1 &` (or equivalent). Mark `CLAUDE_VILLAGE_NO_OPEN` env unset so the browser still pops open.
+- [ ] Create `.claude/commands/village-stop.md` — `!kill $(lsof -ti:3000) 2>/dev/null || echo "village not running"`
+- [ ] README: add a "Seamless install" section with the three setup commands above
+- [ ] CLAUDE.md: mention the slash command files exist + that they're meant to be symlinked into `~/.claude/commands/` per developer
+- [ ] Test: `bun link`, drop symlinks, open Claude Code in a sibling project, type `/village`, confirm village opens reading **this** repo's `subagents/` not the sibling project's missing one
+- [ ] Test: `/village-stop` kills cleanly; running `/village` immediately afterward succeeds (no port-in-use)
+
+### Trade-offs accepted
+
+- Slash command symlinks must point at the repo on disk — if you move the repo, re-link. Acceptable for a clone-and-run tool.
+- `bun link` is per-machine. New machine = re-link. Documented in README.
+- Logs go to `/tmp/claude-village.log` instead of stdout. Tail it when debugging; ignore during play.
+- One global village process at a time (single port 3000). Fine — there's only one of you.
+
+### Why not the alternatives
+
+- **Second terminal:** alt-tab friction. Rejected.
+- **`! claude-village &` inline:** strictly inferior to a slash command — same shell call, less discoverable, undocumented in `/help`.
+- **Project-local slash commands only** (`./.claude/commands/`): only works inside this repo. Defeats "from any project."
+
+## Phase 8 — TypeScript on the client (Path B: on-the-fly transpile)
+
+Goal: get types around `game.js` without adding a build artifact or losing the save → refresh dev loop.
+
+Decision: **Bun.Transpiler in `server.ts`**, transpile `public/game.ts` on each `/game.js` request. Browser still loads `/game.js`. No bundler, no `dist/`, no module split (yet).
+
+- [x] Rename `public/game.js` → `public/game.ts`
+- [x] Add minimal types: `Agent`, `Skill`, `Npc`, `Building`, `Interior`, `SpriteEntry`, `Vec2`, `Rect`, `Door`, `Table`, `SkillItem`, `Decoration`, `Player`, `Scene`, `ChatMessage`, `MsgVariant`. Re-declared client-side (no shared types file — modules still off)
+- [x] In `server.ts`, added a `GET /game.js` route reading `./public/game.ts`, transpiling via `Bun.Transpiler({ loader: "ts", target: "browser" })`. Caches by `BunFile.lastModified` so edits hot-reload.
+- [x] Route order: `/game.js` registers before the catch-all `/*` static handler
+- [x] Smoke test: html 200, game.js 200 with `application/javascript` ctype + 24.4 KB body, agents/skills/404 paths all correct
+- [x] CLAUDE.md: note "client is `game.ts`; transpiled on the fly by server"
+
+Trade-offs accepted:
+- ~15 ms transpile per first hit (then cached by browser). Imperceptible.
+- No tree-shaking / minification. We don't ship a tarball, so we don't care.
+- Single file stays — only split into modules if it crosses ~1000 lines.
+
 ## World sizing (smaller — see /plan "make-the-world-smaller")
 
 - [x] First pass: 24×24 tiles, ringR 520, drop pond
@@ -193,7 +294,9 @@ Decision implication: this **pushes the SDK option ahead of `claude -p`**, becau
 
 - Should agent home positions be user-configurable (frontmatter `x`, `z` fields)?
 - Should skills appear as items the player "equips" to boost agent responses?
-- Add a `bun build` step later for production, or keep zero-build forever?
+- When `game.ts` grows past ~1000 lines, split into modules + `bun build` step, or stay single-file?
+- Per-agent NPC sprites: invent a sprite-key convention (`npc_<id>.png` falling back to `npc_default.png`)?
+- Persist chat history across page refresh (localStorage), or keep it session-only?
 
 ---
 
@@ -201,6 +304,10 @@ Decision implication: this **pushes the SDK option ahead of `claude -p`**, becau
 
 - Test endpoints with `curl` before touching the frontend
 - Agent positions: deterministic — sort agents by `id` then place by index around their table / building center
-- Keep Three.js scene setup modular inside `index.html` — use clearly named `function buildTerrain()`, `function buildNPC()` etc. even in a single file
-- Only dep beyond `hono` should be added with explicit user approval. Agent/skill files have no YAML frontmatter, so `gray-matter` is **not** used — H1 + first paragraph parsing lives in `server.ts`
+- Keep canvas / game setup modular inside `public/game.ts` — use clearly named `function generateMap()`, `function buildInterior()`, `function placeBuilding()` etc.
+- Server deps live in `package.json`: `hono` + `@anthropic-ai/claude-agent-sdk`. Any further deps need explicit user approval. Agent/skill files have no YAML frontmatter — `gray-matter` is **not** used; H1 + first paragraph parsing lives in `server.ts`.
 - If `./subagents/` is missing or empty, return `[]` gracefully rather than throwing
+- **Bun gotcha:** `Bun.file()` does **not** have a `.stat()` method. Use `BunFile.lastModified` (number, epoch ms) for mtime-based cache invalidation. We learned this when wiring the `/game.js` transpile route.
+- **Bg-isolation:** for background Claude Code sessions in this repo, `.claude/settings.json` carries `{ "worktree": { "bgIsolation": "none" } }` so edits land in the shared checkout. Don't remove unless you intentionally want bg sessions to clone into a separate worktree.
+- **Type sharing:** `Agent` and `Skill` types are duplicated in `server.ts` and `public/game.ts` on purpose — no shared types file yet because we have no module system on the client. If a third surface ever needs them, extract to `types.ts` and add a shared-types import path.
+- **Chat panel hide/show:** toggle Tailwind `hidden` ↔ `flex` classes; do not assign `style.display` directly. Helpers `showChat`/`hideChat`/`showNearby`/`hideNearby` already exist — use those.

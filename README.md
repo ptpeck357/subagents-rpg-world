@@ -1,6 +1,6 @@
 # Claude Village
 
-A 2D top-down (Lords of Xulima–style) cozy RPG world where Claude Code subagents are NPCs you can walk up to and **chat with**. Built with Bun + Hono on the server and vanilla HTML5 Canvas in the browser — no build step, no framework, no CDN.
+A 2D top-down (Lords of Xulima–style) cozy RPG world where Claude Code subagents are NPCs you can walk up to and **chat with**. Built with Bun + Hono on the server and vanilla HTML5 Canvas + Tailwind in the browser — no build step, no framework.
 
 The village layout mirrors the `subagents/` directory tree:
 
@@ -35,17 +35,18 @@ Same code path either way — the SDK picks the right auth automatically. The lo
 
 - **WASD / arrows** — walk
 - **Shift** — run
-- **E** — talk to nearest NPC
-- **Esc** — close chat panel
-- Walk close to an NPC to see name + role
+- **E** — talk to nearest NPC, or read the nearest skill (inside the Skill Hut)
+- **Esc** — close chat panel / skill modal
+- Walk close to an NPC or skill item to see its name + role
 
 ## Project layout
 
 ```
 .
-├── server.ts             Bun + Hono — 3 endpoints + static serve
+├── server.ts             Bun + Hono — 4 endpoints + static serve + Agent SDK + CLI bin
 ├── public/
-│   ├── index.html        Single-file 2D canvas game
+│   ├── index.html        HTML shell (Tailwind classes, DOM scaffolding)
+│   ├── game.js           Canvas rendering, world gen, chat panel logic
 │   └── sprites/          Drop PNG sprites here (see "Adding art" below)
 ├── subagents/            Agent source (dir-per-category, .md per agent)
 ├── skills/               Skill source (dir-per-skill, SKILL.md inside)
@@ -61,7 +62,7 @@ The engine looks for PNGs under `public/sprites/`. Anything missing falls back t
 - `npc_default.png`, `player.png`
 - `tree.png`, `rock.png`, `flower.png`, `table.png`, `skill_item.png`
 
-Anchor each sprite at bottom-center. Recommended sizes are written next to each `defineSprite()` call in `public/index.html`.
+Anchor each sprite at bottom-center. Recommended sizes are written next to each `defineSprite()` call in `public/game.js`.
 
 ## API
 
@@ -92,6 +93,6 @@ Refresh the page. A new NPC appears at the corresponding building (and table, if
 
 - **Runtime** — Bun
 - **Server** — Hono + `@anthropic-ai/claude-agent-sdk`
-- **Client** — Vanilla JS + HTML5 Canvas 2D, no bundler, no CDN
+- **Client** — Vanilla JS + HTML5 Canvas 2D + Tailwind (Play CDN), no bundler
 
 See `CLAUDE.md` for the full set of conventions and `planner.md` for what's next.

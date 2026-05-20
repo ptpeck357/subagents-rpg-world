@@ -138,6 +138,21 @@ app.post("/api/chat/reset", async (c) => {
   return c.json({ ok: true });
 });
 
+// transpile public/game.ts → JS on the fly; cached after first build
+const tsTranspiler = new Bun.Transpiler({ loader: "ts", target: "browser" });
+let gameJsCache: { mtime: number; body: string } | null = null;
+app.get("/game.js", async (c) => {
+  const file = Bun.file("./public/game.ts");
+  const mtime = file.lastModified;
+  if (!gameJsCache || gameJsCache.mtime !== mtime) {
+    const src = await file.text();
+    gameJsCache = { mtime, body: tsTranspiler.transformSync(src) };
+  }
+  return new Response(gameJsCache.body, {
+    headers: { "content-type": "application/javascript; charset=utf-8" },
+  });
+});
+
 app.get("/*", async (c) => {
   const path = c.req.path === "/" ? "/index.html" : c.req.path;
   const file = Bun.file(`./public${path}`);
