@@ -10,11 +10,22 @@ Project tracker for Claude Code. Update this file as tasks move through states.
 
 ## Session Handoff
 
-**Last touched:** 2026-05-19 (Phase 6 error-state + Phase 9 e2e + Phase 3 NPC highlights/labels + village layout overhaul + interior decor + doors face plaza + lint/format tooling + module split + tseslint deprecation fix shipped).
+**Last touched:** 2026-05-20 (sprite atlas + 4-direction player + south-of-plaza exit cooldown + database silo + plainer rug + visible player faces + village layout overhaul: single row of buildings with south-facing painted doors aligned to entry rects + main street; removed pulsing door indicator; added wooden name plaques above each door).
 
-**State of the world:** village is playable end-to-end with placeholders. Walk in, enter any of 8 buildings, talk to NPCs (SDK-backed chat), read skills (modal). Tailwind for UI. TypeScript on both sides; client is now an ES-module bundle (`Bun.build`) of `public/src/{types,world,render,main}.ts`. First-clone failure lands on a helpful overlay. `claude-village` is `bun link`-ed on this machine; `/village` and `/village-stop` symlinks are live in `~/.claude/commands/`. World is **1792×1152** at a 1.6× render zoom; camera scrolls and follows the player. Doors point at the plaza, dirt paths radiate out to each, building bodies are solid, interiors have bookshelves / lamps / plants / crates. Prettier + eslint are wired with passing baseline; `bunx tsc --noEmit` is clean.
+**State of the world:** village is playable end-to-end with painted art. All 23 sprites live under `public/sprites/`. Player spawns at the plaza in the south; the 8 buildings (7 categories + Skill Hut) sit in one row across the north with their painted doors facing the player. A T-shaped path (per-door stubs + horizontal main street + central artery to plaza) connects everything. Each building shows a small gold-on-dark-wood **name plaque** above its door — no separate door indicator. Walking up to a painted door triggers entry because `southDoor(bx, by, spriteW)` aligns the entry rect with the painted door's horizontal offset on each sprite. Interiors have bookshelves / lamps / plants / crates. NPCs (SDK-backed chat) and skills (modal) work. Tailwind for UI. Client is an ES-module bundle (`Bun.build`) of `public/src/{types,world,render,main}.ts`; bundling is on-demand from `server.ts` and cached by max source mtime. `claude-village` is `bun link`-ed on this machine; `/village` and `/village-stop` symlinks are live in `~/.claude/commands/`. World is **1792×1152** at a 1.6× render zoom; camera follows the player. Prettier + eslint baseline passes; `bunx tsc --noEmit` is clean. Local dev server on :3000 is **not currently running**.
 
-**Shipped this session:**
+**Shipped 2026-05-20:**
+
+- **Procedural sprite atlas** — `scripts/gen-sprites.ts` writes all 23 PNGs into `public/sprites/` via a hand-rolled PNG encoder over `node:zlib` (no new deps). LoX-style buildings (3/4 oblique base + peaked tile roofs, clay dome for `building_database`, thatched peak for `building_skills`), painterly props (tree/rock/flower/table/bookshelf/rug/lamp/plant/crate/skill_item), characters. Re-run with `bun run sprites`.
+- **4-direction player sprites** — `player.png` (south) joined by `player_n.png` / `player_e.png` / `player_w.png`. `drawHumanoid` in the generator takes a `facing` param and shifts face features, hood/hair coverage, arm visibility, and boot stance per direction. `render.ts` exports `playerSpriteKey(facing)` and picks the right key in both `renderVillage` and `renderInterior`.
+- **Exit-cooldown fix** — south-of-plaza buildings (payments, nextjs, react) have north-facing doors. Player exit spawned 28 px out of the door, but the entry trigger zone reached 21 px from door center — 7 px gap. Holding south after exiting re-triggered entry within one frame (the "can't leave the building" loop, most visible on payments since it's directly south). `main.ts` now has an `enterCooldown` state set to 0.4 s by `exitBuilding()`; entry checks no-op while > 0. Also fixed a follow-up bug where the cooldown was tied to the wrong `if/else` branch and ran the interior-only logic with `currentBuilding === null`, freezing the player after exit.
+- **Database silo + plainer rug** — `building_database` switched from the awkward clay dome to a peaked clay-tile roof plus a steel `silo` feature (new optional `BuildingSpec` flag) attached to the back-right: cap, banding rings, vent pipe. `rug.png` redrawn as a squared brown/tan weave with a muted diamond center instead of the burgundy + gold round rug.
+- **Visible player faces** — the old `drawHumanoid` painted a full-head hair ellipse that swallowed the eye line, so south/east/west sprites looked face-less. Hair is now top-of-head only, with sideburns at the temples; eyes are 2 px wide; cheek shadow was moved below the eye line so it never overlaps features.
+- **Village layout overhaul** — replaced the ring-around-plaza placement with a row of buildings along the north edge. `southDoor(bx, by, spriteW)` computes the per-sprite door offset so the entry rect, painted door, and dirt-path tile all land on the same x. Paths form a T: short stubs from each door south to a horizontal main street, then one vertical artery from the street center down to the plaza. Player spawns at the plaza. `pickDoor()` removed.
+- **Removed the door indicator** — the pulsing yellow rect + `▼` glyph from `drawBuildingExtras` is gone now that every building has a visible painted door directly under its entry rect. `drawBuildingExtras` deleted; `renderVillage()` no longer takes `now` (it had no other use of it).
+- **Building name plaques** — `render.ts/drawBuildingSign(b)` draws a small gold-on-dark-wood signboard above each building's door (uppercased `b.name`). Position: `b.door.x` (already aligned with the painted door), `b.y - b.h * 0.62 + 2` — sits on the wall band between the roof eave and the windows. Drawn at runtime on top of the sprite, so no atlas regeneration needed.
+
+**Shipped previously (2026-05-19):**
 
 - Phase 6 — defensive empty/missing handling. `server.ts` guards `loadAgents()`/`loadSkills()` with `existsSync` so a missing `./subagents/` or `./skills/` dir returns `[]` instead of throwing; `public/index.html` carries a hidden `#empty-state` overlay; `public/game.ts` removes the loading screen, shows the overlay, and bails before world init when `/api/agents` is empty.
 - Phase 9 — end-to-end test on this machine. `bun link` (claude-village → `~/.bun/bin/claude-village`); symlinks `~/.claude/commands/village.md` + `village-stop.md` → repo copies. Verified from `cd /tmp` that `claude-village` serves 33 agents + 2 skills (portable paths intact). `village.md` snippet handles cold-start + port-in-use; `village-stop.md` kills :3000 cleanly.
@@ -31,12 +42,11 @@ Project tracker for Claude Code. Update this file as tasks move through states.
 - **Module split** (~990-line `public/game.ts` → 4 files under `public/src/`): `types.ts` (all shared types), `world.ts` (constants, sprite table + 20 `defineSprite()` calls, tilemap, `pickDoor`/`placeBuilding`/`placeSkillHut`/`scatterDecorations`/`paintPath`/`isOpenGround`/`buildInterior`, collision, `layoutWorld()`), `render.ts` (`drawSprite` + draw helpers + `renderVillage`/`renderInterior` + `showNearby`/`hideNearby` + `clearFrame`, `setRenderContext` once-init), `main.ts` (data fetch, empty-state, canvas setup, player/scene state, input, chat panel + skill modal, `update()`/`frame()`, `enterBuilding`/`exitBuilding`). Server pipeline swapped from `Bun.Transpiler` (single-file TS strip) to `Bun.build({ format: 'esm' })` (bundles `public/src/main.ts` → `/game.js`), cached by max mtime across `public/src/*.ts`. `index.html` script tag now `type="module"`. Old `public/game.ts` deleted.
 - `eslint.config.js` — dropped the deprecated `tseslint.config(...spread)` wrapper (TS6387) in favor of a plain flat-config array. Runtime behavior unchanged; lint + format still pass.
 
-**Next session should start with:** Phase 7 follow-up — June 15 OAuth swap. Calendar-gated, ~27 days out. After that, Phase 2/3 sprite art whenever PNGs land. Phase 6 polish (day/night, idle anims, sound, mobile touch) remains as low-priority work whenever you want visible polish. Client is now bundled — `bun build` runs per `/game.js` request when any source under `public/src/` changes.
+**Next session should start with:** Phase 7 follow-up — June 15 OAuth swap. Calendar-gated, ~26 days out. After that, Phase 2/3 polish: per-agent NPC sprites (`npc_<id>.png` with `npc_default.png` fallback), 4-frame walk-cycle animation per direction, optional portrait sprites in the chat panel. Phase 6 polish (day/night, idle anims, sound, mobile touch) remains low-priority. Client is bundled — `bun build` runs per `/game.js` request when any source under `public/src/` changes. To resume work locally: `bun start` (boots :3000 + watches + opens browser).
 
 **Open prerequisites that block other work:**
 
 - Chat won't actually return responses until `ANTHROPIC_API_KEY` is set in `.env` (today's path) — or until 2026-06-15 when the SDK runs on the Pro plan's free credit via `claude setup-token`. Server gracefully returns the SDK error if unset.
-- Sprite art (Phase 2/3 placeholders) waits on PNGs being dropped into `public/sprites/`.
 
 **Active gotchas to remember:**
 
@@ -48,7 +58,9 @@ Project tracker for Claude Code. Update this file as tasks move through states.
 - Empty-state overlay uses the same `hidden` ↔ `grid` swap pattern as the chat panel — toggle via classList, not `style.display`
 - `ZOOM` in `game.ts` is render-only — camera math is `camX/camY` in world space, sized to `canvas / ZOOM`. World-space coords (player.x/y, NPC home, collision rects) never see the zoom factor
 - `defineSprite(key, w, h, color, label)`: pass `null` for `label` to render the placeholder rect _without_ any text. The previous `label ?? key` fallback used to bleed the key (e.g. "npc_default") onto the sprite — don't bring that back
-- Doors are not always south. `Building.exitOffset` + `exitFacing` are computed once by `pickDoor()` and drive `exitBuilding()` — don't hard-code `+28y` or "south" anywhere else
+- Doors are always south now. `southDoor(bx, by, spriteW)` in `world.ts` is the single source of truth for `Building.door` / `exitOffset` / `exitFacing`. It mirrors the painted-door offset from `scripts/sprite/buildings.ts:drawDoor` (the door sits ~−22 px from the anchor on a 180-wide sprite because the front face is offset left of the 3/4-oblique anchor). If you ever bring back N/E/W doors you must also generate matching sprite variants with the painted door on the correct face — otherwise the entry rect and the visible door drift apart and players get the "ghost door" experience the row layout was built to avoid.
+- Exit re-entry guard: `exitBuilding()` sets `enterCooldown = 0.4` and the village entry loop skips while > 0. It's structured as `if (scene === 'village') { if (cooldown === 0) { ...entry checks... } } else { ...interior logic... }`. Do **not** collapse the cooldown into the outer `if`: when scene === 'village' AND cooldown > 0, the outer `else` would run with `currentBuilding === null` and crash the loop (this regression actually shipped briefly — see 2026-05-20 fix).
+- Sprite atlas is committed PNGs, not generated at runtime. Run `bun run sprites` after editing anything under `scripts/sprite/` (entrypoint is `scripts/gen-sprites.ts`). Modules: `png.ts` (encoder), `canvas.ts` (primitives), `palette.ts`, `buildings.ts` (data-driven `buildingSpecs` + style/emblem/roof-prop tables), `characters.ts` (`drawHumanoid` + `Look` presets), `props.ts`, `recipes.ts` (assembles the final map). Engine-side sprite keys live in `public/src/world.ts` `defineSprite()` calls — adding a new sprite key requires both a `defineSprite()` entry and a matching recipe in the generator (else the engine renders the placeholder rect).
 - Plaza paths are tile-painted _before_ `bakeTileLayer()` runs. If you add new buildings or move them after baking, the path won't redraw — paint first, bake once
 - Client is now bundled, not transpiled. Edits to `public/src/*.ts` invalidate the `/game.js` cache via max-mtime; `Bun.build({ format: 'esm' })` re-bundles on next hit. `index.html` loads the result with `type="module"` — don't drop the attribute or the `import`/`export` syntax becomes a parse error
 - Module live bindings: `tileLayer` is `export let` in `world.ts`, reassigned inside `layoutWorld()`. `render.ts` imports it and reads the live binding. Same trick for `currentNearest`/`currentNearestSkill` in `render.ts` consumed by `main.ts`. Don't `import` a snapshot into a local `const` if you need the latest value
@@ -58,15 +70,16 @@ Project tracker for Claude Code. Update this file as tasks move through states.
 - Per-agent NPC sprites: naming convention `npc_<id>.png` → `npc_default.png` fallback? Not yet implemented.
 - localStorage chat history persistence: skipped for now; in-memory only.
 - ~~Splitting `game.ts` into modules + `bun build`~~: shipped 2026-05-19; client lives under `public/src/` as `types.ts` / `world.ts` / `render.ts` / `main.ts`.
+- ~~Placeholder sprite rects~~: shipped 2026-05-20 — `scripts/gen-sprites.ts` produces the full atlas, including 4-direction player sprites.
 
 ---
 
 ## Priority order (what to work on next)
 
-Phases 1, 2, 3, 4, 5, 7, 8, 9 are largely shipped — see their sections for residual checkboxes. Phase 6 defensive empty-state landed 2026-05-19; only the polish sub-items remain. What's open, in the order it should be tackled:
+Phases 1, 2, 3, 4, 5, 7, 8, 9 are largely shipped — see their sections for residual checkboxes. Phase 6 defensive empty-state landed 2026-05-19; sprite atlas + 4-direction player + exit cooldown landed 2026-05-20. What's open, in the order it should be tackled:
 
 1. **Phase 7 follow-up — June 15 OAuth swap.** Calendar-gated. As soon as 2026-06-15 lands: remove `ANTHROPIC_API_KEY` requirement, document `claude setup-token`, point users at Pro plan included credit.
-2. **Phase 2/3 — real sprite PNG art + walk-cycle frames + nearest-NPC highlight.** Blocked on actual art assets being dropped into `public/sprites/`. Move up the list when that lands.
+2. **Phase 2/3 — animation + per-agent variants.** Procedural atlas now ships; remaining gaps are 4-frame walk-cycles per direction, per-agent NPC sprites (`npc_<id>.png` w/ fallback), and portrait sprites in the chat panel.
 3. **Phase 6 polish — day/night cycle, idle NPC animations, ambient sound, mobile touch controls.** Real polish; do last.
 
 ---
@@ -105,8 +118,9 @@ Phases 1, 2, 3, 4, 5, 7, 8, 9 are largely shipped — see their sections for res
 - [x] Interior scene: wood-plank floor, walls, tables (per nested subdir), NPCs around tables
 - [x] Hide NPCs in village view; they only appear inside their building
 - [x] Skill Hut interior: shelves/items for each skill
-- [ ] Replace placeholder rects with real sprite PNGs (drop into `public/sprites/`)
-- [ ] Walk-cycle frames (north/south/east/west sprite sheets)
+- [x] Replace placeholder rects with real sprite PNGs — procedural LoX-style atlas generated by `scripts/gen-sprites.ts` (`bun run sprites`), 23 PNGs committed under `public/sprites/`
+- [x] 4-direction player sprites (single frame per direction: `player.png` south + `player_n` / `player_e` / `player_w`); `render.ts/playerSpriteKey()` swaps by `player.facing`
+- [ ] Walk-cycle frames (multi-frame north/south/east/west sprite sheets — animated walk loop, not just facing)
 - [ ] Smooth fade transition between village ↔ interior
 
 ## Phase 3 — Agent NPCs

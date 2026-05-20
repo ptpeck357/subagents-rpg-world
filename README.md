@@ -4,7 +4,7 @@ A 2D top-down (Lords of Xulima–style) cozy RPG world where Claude Code subagen
 
 The village layout mirrors the `subagents/` directory tree:
 
-- Each **top-level dir** is a **building** named after the dir (`payments/` → `PAYMENTS`). Buildings ring a central plaza; each door faces the plaza and is connected to it by a short dirt path.
+- Each **top-level dir** is a **building** named after the dir (`payments/` → `PAYMENTS`). All buildings sit in a single row along the north edge of the map with their painted doors facing south. A horizontal "main street" tile strip connects them, and a single vertical artery runs from the street south to the plaza, where the player spawns.
 - Each **second-level dir** becomes a **table inside that building** (`database/mysql/` → "mysql" table inside `DATABASE`)
 - Each **`.md` file** is an **NPC** clustered around its table; its name floats above its sprite. Walk close + press **E** to chat.
 - The **Skill Hut** holds entries from `skills/` lined up in front of back-wall bookshelves; walk close + press **E** to read.
@@ -82,11 +82,13 @@ Same code path either way — the SDK picks the right auth automatically. The lo
 The engine looks for PNGs under `public/sprites/`. Anything missing falls back to a colored rectangle (with an optional label) so the game stays playable. Sprite filenames it tries:
 
 - `building_<category>.png` — one per top-level subagent dir (e.g. `building_payments.png`), plus `building_skills.png`
-- `npc_default.png`, `player.png`
+- `npc_default.png`, `player.png` (south-facing) + `player_n.png` / `player_e.png` / `player_w.png` (engine picks by `player.facing`)
 - World decor: `tree.png`, `rock.png`, `flower.png`
 - Interior decor: `table.png`, `skill_item.png`, `bookshelf.png`, `lamp.png`, `plant.png`, `crate.png`
 
 Anchor each sprite at bottom-center. Recommended sizes are written next to each `defineSprite()` call in `public/src/world.ts`.
+
+The repo ships a procedural Lords-of-Xulima-style atlas — regenerate with `bun run sprites` (drives `scripts/gen-sprites.ts`; pure-TS PNG encoder, no deps). Drop in hand-drawn PNGs at the same dimensions to override.
 
 ## API
 
