@@ -1,4 +1,6 @@
+#!/usr/bin/env bun
 import { Hono } from "hono";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 
 type Agent = {
   id: string;
@@ -78,28 +80,62 @@ const app = new Hono();
 app.get("/api/agents", async (c) => c.json(await loadAgents()));
 app.get("/api/skills", async (c) => c.json(await loadSkills()));
 
+// Per-NPC conversation memory: agentId → SDK session id
+const sessions = new Map<string, string>();
+
 app.post("/api/chat", async (c) => {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return c.json({ error: "ANTHROPIC_API_KEY not set on server" }, 500);
-  const body = await c.req.json();
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": key,
-      "anthropic-version": "2023-06-01",
+  const body = await c.req.json() as { agentId: string; system: string; message: string };
+  const { agentId, system, message } = body;
+  if (!agentId || !message) return c.json({ error: "agentId and message required" }, 400);
+
+  const resume = sessions.get(agentId);
+  const stream = query({
+    prompt: message,
+    options: {
+      systemPrompt: system,
+      ...(resume ? { resume } : {}),
     },
-    body: JSON.stringify({
-      model: body.model ?? "claude-sonnet-4-5",
-      max_tokens: body.max_tokens ?? 1024,
-      system: body.system,
-      messages: body.messages,
-    }),
   });
-  return new Response(res.body, {
-    status: res.status,
-    headers: { "content-type": res.headers.get("content-type") ?? "application/json" },
+
+  const enc = new TextEncoder();
+  const readable = new ReadableStream({
+    async start(controller) {
+      const send = (obj: unknown) => controller.enqueue(enc.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      try {
+        for await (const msg of stream) {
+          if (msg.type === "assistant") {
+            const blocks = (msg as any).message?.content ?? [];
+            for (const b of blocks) {
+              if (b.type === "text" && b.text) send({ type: "chunk", text: b.text });
+            }
+          } else if (msg.type === "result") {
+            const sid = (msg as any).session_id;
+            if (sid) sessions.set(agentId, sid);
+            send({ type: "done" });
+          } else if (msg.type === "system") {
+            // ignore system frames
+          }
+        }
+      } catch (e) {
+        send({ type: "error", error: String(e instanceof Error ? e.message : e) });
+      } finally {
+        controller.close();
+      }
+    },
   });
+  return new Response(readable, {
+    headers: {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      "connection": "keep-alive",
+    },
+  });
+});
+
+app.post("/api/chat/reset", async (c) => {
+  const { agentId } = await c.req.json();
+  sessions.delete(agentId);
+  return c.json({ ok: true });
 });
 
 app.get("/*", async (c) => {
@@ -109,5 +145,15 @@ app.get("/*", async (c) => {
   return new Response(file);
 });
 
-export default { port: 3000, fetch: app.fetch };
-console.log("Claude Village running at http://localhost:3000");
+const PORT = Number(process.env.PORT ?? 3000);
+Bun.serve({ port: PORT, fetch: app.fetch });
+const url = `http://localhost:${PORT}`;
+console.log(`Claude Village running at ${url}`);
+
+if (!process.env.CLAUDE_VILLAGE_NO_OPEN) {
+  const opener =
+    process.platform === "darwin" ? "open" :
+    process.platform === "win32" ? "start" :
+    "xdg-open";
+  try { Bun.spawn([opener, url], { stdout: "ignore", stderr: "ignore" }); } catch {}
+}
