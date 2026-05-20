@@ -8,23 +8,37 @@ A 2D top-down (3/4 oblique, Lords of Xulima–style) RPG world where Claude Code
 claude-village/
 ├── server.ts          # Bun + Hono API server (file scanner + Agent SDK chat) + CLI bin
 ├── public/
-│   ├── index.html     # HTML shell — Tailwind classes, DOM scaffolding, loads /game.js
-│   ├── game.ts        # All canvas rendering, world gen, chat panel logic (TypeScript)
+│   ├── index.html     # HTML shell — Tailwind classes, DOM scaffolding, <script type="module" src="/game.js">
+│   ├── src/
+│   │   ├── types.ts   # Shared TypeScript types (Agent, Building, Interior, etc.)
+│   │   ├── world.ts   # Constants, sprite table, tilemap, world layout, collision, layoutWorld()
+│   │   ├── render.ts  # Canvas drawing: drawSprite, renderVillage, renderInterior, helpers
+│   │   └── main.ts    # Bootstrap: data fetch, player/scene state, input, chat panel, game loop
 │   └── sprites/       # Drop PNG sprites here (filename = sprite key, e.g. building_api.png)
 ├── subagents/         # Local agent source (dir-per-category, .md per agent)
 ├── skills/            # Local skill source (dir-per-skill, SKILL.md inside)
+├── .claude/commands/  # /village + /village-stop slash commands (symlink into ~/.claude/commands/)
+├── eslint.config.js   # Flat ESLint config (typescript-eslint, server.ts → node, public → browser)
+├── .prettierrc.json   # Prettier config
 ├── CLAUDE.md
 └── planner.md         # See @planner.md for active task tracking
 ```
+
+Server resolves `subagents/`, `skills/`, and `public/` relative to `import.meta.dir`, so `claude-village` (after `bun link`) always reads **this** repo's content regardless of the cwd it was invoked from.
+
+## Slash commands
+
+`.claude/commands/village.md` and `village-stop.md` ship in the repo. They're per-developer: each user symlinks them into `~/.claude/commands/` once so `/village` and `/village-stop` work from any Claude Code session. Setup steps live in README "Seamless install".
 
 ## Stack
 
 - **Runtime**: Bun (not Node)
 - **Server**: Hono — keep it minimal, no extra middleware
 - **Chat**: `@anthropic-ai/claude-agent-sdk` — `query()` streams via SSE; no direct Anthropic fetch
-- **Frontend**: HTML5 Canvas 2D, no framework. Bun's bundler (`bun build`) is available; use it when modules / TypeScript on the client buy real value, skip it when raw JS still fits.
+- **Frontend**: HTML5 Canvas 2D, no framework. Client is split into ES modules under `public/src/` and bundled into `/game.js` by `Bun.build({ format: 'esm' })` on demand. `index.html` loads it via `<script type="module">`.
 - **Styling**: Tailwind via Play CDN. Other CDN scripts are fine when they pull their weight — prefer well-known libraries over hand-rolling.
-- **Language**: TypeScript on both sides. `public/game.ts` is transpiled on the fly by `server.ts` via `Bun.Transpiler` and served as `/game.js` to the browser. Edit `.ts`, refresh, done.
+- **Language**: TypeScript on both sides. `server.ts` bundles `public/src/main.ts` → `/game.js` per request, cached by max mtime across `public/src/*.ts`. Edit any module, refresh, done.
+- **Tooling**: `bun run lint` (eslint flat config + typescript-eslint), `bun run lint:fix`, `bun run format` (prettier), `bun run format:check`.
 - **Art**: PNGs in `public/sprites/`; engine falls back to colored placeholder rects when a sprite file is absent
 
 ## Commands
@@ -41,13 +55,13 @@ Auth for chat: SDK picks whatever is available. Before 2026-06-15, set `ANTHROPI
 
 ## API surface
 
-| Method | Endpoint | Source / Behavior |
-|---|---|---|
-| `GET` | `/api/agents` | Recursive scan of `./subagents/**/*.md`, returns parsed agents with category/subcategory |
-| `GET` | `/api/skills` | Recursive scan of `./skills/**/SKILL.md`, returns parsed skills |
-| `POST` | `/api/chat` | Runs Agent SDK `query()` with `{agentId, system, message}`; streams chunks back as SSE (`data: {"type":"chunk","text":...}`). Maintains per-NPC SDK session resume keyed by `agentId` in an in-memory Map. Before the SDK call, `relevantSkills()` keyword-matches loaded skills against the agent's `system` text and appends matches under a `# Relevant skills` heading. |
-| `POST` | `/api/chat/reset` | Deletes the cached session id for an `agentId` so the next chat starts a fresh thread. |
-| `GET` | `/*` | Static serve from `./public/` |
+| Method | Endpoint          | Source / Behavior                                                                                                                                                                                                                                                                                                                                                           |
+| ------ | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/api/agents`     | Recursive scan of `./subagents/**/*.md`, returns parsed agents with category/subcategory                                                                                                                                                                                                                                                                                    |
+| `GET`  | `/api/skills`     | Recursive scan of `./skills/**/SKILL.md`, returns parsed skills                                                                                                                                                                                                                                                                                                             |
+| `POST` | `/api/chat`       | Runs Agent SDK `query()` with `{agentId, system, message}`; streams chunks back as SSE (`data: {"type":"chunk","text":...}`). Maintains per-NPC SDK session resume keyed by `agentId` in an in-memory Map. Before the SDK call, `relevantSkills()` keyword-matches loaded skills against the agent's `system` text and appends matches under a `# Relevant skills` heading. |
+| `POST` | `/api/chat/reset` | Deletes the cached session id for an `agentId` so the next chat starts a fresh thread.                                                                                                                                                                                                                                                                                      |
+| `GET`  | `/*`              | Static serve from `./public/`                                                                                                                                                                                                                                                                                                                                               |
 
 **Do not add other endpoints.** The SDK call exists server-side so the API key / OAuth token never lives in the browser.
 
@@ -57,29 +71,30 @@ Files have **no YAML frontmatter**. Parser uses `# H1` as `name` and the first n
 
 ```ts
 type Agent = {
-  id: string           // path stem, e.g. "database/supabase/rls-reviewer"
-  name: string         // H1 title
-  description: string  // first paragraph, ~160 char cap
-  content: string      // raw markdown body (used as chat system prompt)
-  category: string     // top-level dir, e.g. "database"
-  subcategory?: string // second-level dir if present, e.g. "supabase"
-}
+    id: string; // path stem, e.g. "database/supabase/rls-reviewer"
+    name: string; // H1 title
+    description: string; // first paragraph, ~160 char cap
+    content: string; // raw markdown body (used as chat system prompt)
+    category: string; // top-level dir, e.g. "database"
+    subcategory?: string; // second-level dir if present, e.g. "supabase"
+};
 
 type Skill = {
-  id: string           // dir name, e.g. "secret-scan"
-  name: string
-  description: string
-  content: string
-}
+    id: string; // dir name, e.g. "secret-scan"
+    name: string;
+    description: string;
+    content: string;
+};
 ```
 
 ## Conventions
 
 - Conventional Commits: `feat:`, `fix:`, `chore:`, `docs:`
 - No `npm` — use `bun add` / `bun remove`
-- Keep `server.ts` lean (~160 line ceiling now that SDK chat + CLI live there); if it grows past that, something is wrong
-- `public/index.html` stays a thin shell — markup, Tailwind classes, two script tags (Tailwind + game.js). Don't put game logic in here.
-- Client code owns: canvas rendering, world generation, NPC wander, scene transitions, chat panel wiring. Split into modules + TypeScript when a file gets unwieldy; keep `public/index.html` as the entry shell either way.
+- Keep `server.ts` lean (~220 line ceiling now that SDK chat + CLI + dir guards + the bundle route live there); if it grows past that, something is wrong
+- Client modules (`public/src/`) are individually small — keep them that way. If `world.ts` or `render.ts` crosses ~500 lines, split (e.g. break `sprites` or `interior` out)
+- `public/index.html` stays a thin shell — markup, Tailwind classes, two script tags (Tailwind + the module entry). Don't put game logic in here.
+- Client code is split across `public/src/{types,world,render,main}.ts`. Keep the module boundaries: `types.ts` exports only types; `world.ts` owns world state + collision + layout (no canvas); `render.ts` owns everything that touches `ctx`; `main.ts` is the entry point and owns player/scene/chat state.
 - Style with **Tailwind utility classes in markup**, not custom CSS. The tiny `<style>` block in `index.html` is reserved for things Tailwind can't express (e.g. `image-rendering: pixelated` on canvas).
 - Sprites: PNG files in `public/sprites/`, anchored bottom-center, drawn with painter's-algorithm sort by Y
 
@@ -92,7 +107,7 @@ The world reflects the directory tree under `subagents/`:
 - **Each `.md` agent file is an NPC** clustering around its table (or the building yard if no nested subdir)
 - **Skills live in a dedicated "Skill Hut"** 8th building with skill items lined up out front. Walk near one and press **E** → a modal renders the skill's `content` field. **Esc** or click-outside closes. Movement freezes while modal is open.
 
-Buildings arrange evenly in a ring around a central plaza. NPC home positions are deterministic — agents sorted by `id` then placed by index, so reruns produce the same layout.
+Buildings arrange evenly in a ring around a central plaza. NPC home positions are deterministic — agents sorted by `id` then placed by index, so reruns produce the same layout. Each building's door faces the plaza (chosen by `pickDoor()` from the dominant axis of the building→center vector); the player exits via the same side. A dirt path tile is painted from the plaza to every door before the tile layer is baked.
 
 ## Agent character system
 
@@ -108,9 +123,10 @@ The engine looks for `/sprites/<key>.png`. Current keys it tries to load:
 - `building_<category>` (e.g. `building_payments.png`, `building_database.png`) and `building_skills`
 - `npc_default` — fallback for every agent (per-agent sprites optional later)
 - `player`
-- `tree`, `rock`, `flower`, `table`, `skill_item`
+- World decor: `tree`, `rock`, `flower`
+- Interior decor: `table`, `skill_item`, `bookshelf`, `rug`, `lamp`, `plant`, `crate`
 
-Anchor each PNG at bottom-center. Recommended sizes match the placeholder dimensions in `defineSprite()` calls. Missing PNGs render as labeled colored rects so the game stays playable while art is in flight.
+Anchor each PNG at bottom-center. Recommended sizes match the placeholder dimensions in `defineSprite()` calls. Missing PNGs render as colored rects — pass `null` as the `label` arg to `defineSprite()` if you want the placeholder to render without any text overlay (otherwise the label string is drawn on top, e.g. "DATABASE" for `building_database`).
 
 ## What NOT to do
 
@@ -118,4 +134,4 @@ Anchor each PNG at bottom-center. Recommended sizes match the placeholder dimens
 - Do not put `ANTHROPIC_API_KEY` in the browser — it stays server-side (proxy via `/api/chat`)
 - Package.json scripts beyond `start` are fine when they pay for themselves (`build`, `publish`, etc.)
 - Do not read from `~/.claude/` — sources are the local `subagents/` and `skills/` dirs in this repo
-- Do not modify anything outside `server.ts` and `public/` when working on features
+- Do not modify anything outside `server.ts`, `public/`, and `.claude/commands/` when working on features (docs `CLAUDE.md` / `README.md` / `planner.md` are the usual exceptions)

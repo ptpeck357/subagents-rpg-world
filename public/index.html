@@ -1,45 +1,123 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8" />
-<title>Claude Village</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<style>
-  /* Tailwind doesn't have first-class utilities for these. Keep tiny. */
-  canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
-</style>
-</head>
-<body class="m-0 h-screen overflow-hidden font-sans bg-zinc-900 text-white">
-  <div id="loading" class="fixed inset-0 grid place-items-center bg-zinc-900 text-lg z-10">Loading village…</div>
-  <canvas id="game" class="block"></canvas>
-  <div id="hud" class="fixed top-3 left-3 px-3 py-2 bg-black/55 rounded-lg text-xs leading-relaxed pointer-events-none">
-    WASD / arrows to walk · Shift to run<br/>
-    Press <b>E</b> near an NPC to talk · <b>Esc</b> to close
-  </div>
-  <div id="nearby" class="hidden fixed bottom-6 left-1/2 -translate-x-1/2 bg-black/80 px-4 py-2.5 rounded-lg text-sm max-w-[80vw] text-center border border-white/15"></div>
-  <aside id="chat" aria-hidden="true" class="hidden fixed top-0 right-0 bottom-0 w-[420px] max-w-[90vw] bg-zinc-900/95 text-zinc-100 flex-col border-l border-white/10 z-[8] text-sm">
-    <header class="px-5 py-3.5 border-b border-white/10 flex items-baseline justify-between gap-2">
-      <span id="chat-name" class="font-bold text-yellow-300"></span>
-      <span id="chat-role" class="text-xs text-zinc-400 flex-1 ml-2"></span>
-      <button id="chat-reset" title="Clear conversation history" class="bg-transparent text-zinc-400 border border-zinc-600 rounded px-2 py-1 text-xs hover:text-white hover:border-zinc-400">reset</button>
-      <button id="chat-close" class="bg-transparent text-zinc-400 border border-zinc-600 rounded px-2 py-1 text-xs hover:text-white hover:border-zinc-400">✕</button>
-    </header>
-    <div id="chat-msgs" class="flex-1 overflow-y-auto px-5 py-3.5"></div>
-    <form id="chat-form" class="flex gap-1.5 px-3 py-2.5 border-t border-white/10">
-      <input id="chat-input" type="text" placeholder="ask anything…" autocomplete="off" class="flex-1 bg-zinc-800 text-white border border-zinc-700 rounded px-2.5 py-2 outline-none focus:border-yellow-300" />
-      <button id="chat-send" type="submit" class="bg-yellow-300 text-zinc-900 border-0 rounded px-3.5 py-2 font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">send</button>
-    </form>
-  </aside>
-  <div id="skill-modal" class="hidden fixed inset-0 z-[9] items-center justify-center bg-black/70 p-4">
-    <div class="bg-zinc-900 border border-yellow-300/40 rounded-lg w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
-      <header class="px-5 py-3.5 border-b border-white/10 flex items-baseline justify-between gap-3">
-        <span id="skill-modal-name" class="font-bold text-yellow-300 text-base"></span>
-        <span id="skill-modal-desc" class="text-xs text-zinc-400 flex-1"></span>
-        <button id="skill-modal-close" class="bg-transparent text-zinc-400 border border-zinc-600 rounded px-2 py-1 text-xs hover:text-white hover:border-zinc-400">✕</button>
-      </header>
-      <pre id="skill-modal-body" class="flex-1 overflow-y-auto px-5 py-4 text-sm text-zinc-100 leading-relaxed whitespace-pre-wrap font-sans m-0"></pre>
-    </div>
-  </div>
-  <script src="/game.js" defer></script>
-</body>
+    <head>
+        <meta charset="utf-8" />
+        <title>Claude Village</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <style>
+            /* Tailwind doesn't have first-class utilities for these. Keep tiny. */
+            canvas {
+                image-rendering: pixelated;
+                image-rendering: crisp-edges;
+            }
+        </style>
+    </head>
+    <body class="m-0 h-screen overflow-hidden font-sans bg-zinc-900 text-white">
+        <div id="loading" class="fixed inset-0 grid place-items-center bg-zinc-900 text-lg z-10">
+            Loading village…
+        </div>
+        <div
+            id="empty-state"
+            class="hidden fixed inset-0 z-10 place-items-center bg-zinc-900 text-zinc-100 px-6"
+        >
+            <div class="max-w-xl text-center">
+                <h1 class="text-3xl font-bold text-yellow-300 mb-3">Village is empty</h1>
+                <p class="text-base text-zinc-300 mb-6">
+                    No agents found in
+                    <code class="bg-zinc-800 px-1.5 py-0.5 rounded text-yellow-200"
+                        >./subagents/</code
+                    >. Drop one or more
+                    <code class="bg-zinc-800 px-1.5 py-0.5 rounded text-yellow-200">.md</code> files
+                    into that directory (or a category subfolder like
+                    <code class="bg-zinc-800 px-1.5 py-0.5 rounded text-yellow-200"
+                        >subagents/api/</code
+                    >), then refresh.
+                </p>
+                <p class="text-sm text-zinc-400">
+                    Each <code>.md</code> file becomes an NPC. The first <code>#</code> heading is
+                    the name; the first paragraph is the role.
+                </p>
+            </div>
+        </div>
+        <canvas id="game" class="block"></canvas>
+        <div
+            id="hud"
+            class="fixed top-3 left-3 px-3 py-2 bg-black/55 rounded-lg text-xs leading-relaxed pointer-events-none"
+        >
+            WASD / arrows to walk · Shift to run<br />
+            Press <b>E</b> near an NPC to talk · <b>Esc</b> to close
+        </div>
+        <div
+            id="nearby"
+            class="hidden fixed bottom-6 left-1/2 -translate-x-1/2 bg-black/80 px-4 py-2.5 rounded-lg text-sm max-w-[80vw] text-center border border-white/15"
+        ></div>
+        <aside
+            id="chat"
+            aria-hidden="true"
+            class="hidden fixed top-0 right-0 bottom-0 w-[420px] max-w-[90vw] bg-zinc-900/95 text-zinc-100 flex-col border-l border-white/10 z-[8] text-sm"
+        >
+            <header
+                class="px-5 py-3.5 border-b border-white/10 flex items-baseline justify-between gap-2"
+            >
+                <span id="chat-name" class="font-bold text-yellow-300"></span>
+                <span id="chat-role" class="text-xs text-zinc-400 flex-1 ml-2"></span>
+                <button
+                    id="chat-reset"
+                    title="Clear conversation history"
+                    class="bg-transparent text-zinc-400 border border-zinc-600 rounded px-2 py-1 text-xs hover:text-white hover:border-zinc-400"
+                >
+                    reset
+                </button>
+                <button
+                    id="chat-close"
+                    class="bg-transparent text-zinc-400 border border-zinc-600 rounded px-2 py-1 text-xs hover:text-white hover:border-zinc-400"
+                >
+                    ✕
+                </button>
+            </header>
+            <div id="chat-msgs" class="flex-1 overflow-y-auto px-5 py-3.5"></div>
+            <form id="chat-form" class="flex gap-1.5 px-3 py-2.5 border-t border-white/10">
+                <input
+                    id="chat-input"
+                    type="text"
+                    placeholder="ask anything…"
+                    autocomplete="off"
+                    class="flex-1 bg-zinc-800 text-white border border-zinc-700 rounded px-2.5 py-2 outline-none focus:border-yellow-300"
+                />
+                <button
+                    id="chat-send"
+                    type="submit"
+                    class="bg-yellow-300 text-zinc-900 border-0 rounded px-3.5 py-2 font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    send
+                </button>
+            </form>
+        </aside>
+        <div
+            id="skill-modal"
+            class="hidden fixed inset-0 z-[9] items-center justify-center bg-black/70 p-4"
+        >
+            <div
+                class="bg-zinc-900 border border-yellow-300/40 rounded-lg w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl"
+            >
+                <header
+                    class="px-5 py-3.5 border-b border-white/10 flex items-baseline justify-between gap-3"
+                >
+                    <span id="skill-modal-name" class="font-bold text-yellow-300 text-base"></span>
+                    <span id="skill-modal-desc" class="text-xs text-zinc-400 flex-1"></span>
+                    <button
+                        id="skill-modal-close"
+                        class="bg-transparent text-zinc-400 border border-zinc-600 rounded px-2 py-1 text-xs hover:text-white hover:border-zinc-400"
+                    >
+                        ✕
+                    </button>
+                </header>
+                <pre
+                    id="skill-modal-body"
+                    class="flex-1 overflow-y-auto px-5 py-4 text-sm text-zinc-100 leading-relaxed whitespace-pre-wrap font-sans m-0"
+                ></pre>
+            </div>
+        </div>
+        <script type="module" src="/game.js"></script>
+    </body>
 </html>
