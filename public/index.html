@@ -22,6 +22,42 @@
     position: fixed; inset: 0; display: grid; place-items: center;
     background: #1a1a1a; font-size: 18px; z-index: 10;
   }
+  #chat {
+    position: fixed; top: 0; right: 0; bottom: 0; width: 420px; max-width: 90vw;
+    background: rgba(20,20,20,0.96); color: #f0f0f0; display: none;
+    flex-direction: column; border-left: 1px solid rgba(255,255,255,0.12);
+    z-index: 8; font-size: 14px;
+  }
+  #chat.open { display: flex; }
+  #chat header {
+    padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,0.1);
+    display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  }
+  #chat header .name { font-weight: 700; color: #ffd966; }
+  #chat header .role { font-size: 11px; color: #999; flex: 1; margin-left: 8px; }
+  #chat header button {
+    background: transparent; color: #999; border: 1px solid #444;
+    border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 11px;
+  }
+  #chat header button:hover { color: #fff; border-color: #888; }
+  #chat .msgs { flex: 1; overflow-y: auto; padding: 14px 18px; }
+  #chat .msg { margin-bottom: 14px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
+  #chat .msg.you { color: #9ec5ff; }
+  #chat .msg.you::before { content: "you › "; color: #557; font-weight: 600; }
+  #chat .msg.npc::before { content: ""; }
+  #chat .msg.err { color: #ff7a7a; font-size: 12px; }
+  #chat form { display: flex; gap: 6px; padding: 10px 12px; border-top: 1px solid rgba(255,255,255,0.1); }
+  #chat input {
+    flex: 1; background: #2a2a2a; color: #fff; border: 1px solid #3a3a3a;
+    border-radius: 4px; padding: 8px 10px; font: inherit; outline: none;
+  }
+  #chat input:focus { border-color: #ffd966; }
+  #chat button.send {
+    background: #ffd966; color: #1a1a1a; border: none; border-radius: 4px;
+    padding: 8px 14px; cursor: pointer; font-weight: 600;
+  }
+  #chat button.send:disabled { opacity: 0.5; cursor: not-allowed; }
+  #chat .typing { color: #888; font-style: italic; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -29,9 +65,22 @@
 <canvas id="game"></canvas>
 <div id="hud">
   WASD / arrows to walk · Shift to run<br/>
-  Drop sprite PNGs into <code>/public/sprites/</code> to replace placeholders
+  Press <b>E</b> near an NPC to talk · <b>Esc</b> to close
 </div>
 <div id="nearby"></div>
+<aside id="chat" aria-hidden="true">
+  <header>
+    <span class="name" id="chat-name"></span>
+    <span class="role" id="chat-role"></span>
+    <button id="chat-reset" title="Clear conversation history">reset</button>
+    <button id="chat-close">✕</button>
+  </header>
+  <div class="msgs" id="chat-msgs"></div>
+  <form id="chat-form">
+    <input id="chat-input" type="text" placeholder="ask anything…" autocomplete="off" />
+    <button class="send" id="chat-send" type="submit">send</button>
+  </form>
+</aside>
 
 <script>
 (async function () {
@@ -451,12 +500,143 @@
     ctx.fillText(item.skill.name, item.x, item.y - 48);
   }
 
+  // ---------- chat panel ----------
+  let currentNearest = null;       // npc or null
+  let chatAgent = null;            // agent currently open in panel
+  const chatPanel = document.getElementById("chat");
+  const chatName = document.getElementById("chat-name");
+  const chatRole = document.getElementById("chat-role");
+  const chatMsgs = document.getElementById("chat-msgs");
+  const chatInput = document.getElementById("chat-input");
+  const chatSend = document.getElementById("chat-send");
+  const chatForm = document.getElementById("chat-form");
+  const chatClose = document.getElementById("chat-close");
+  const chatReset = document.getElementById("chat-reset");
+  const histories = new Map();     // agentId → [{role, text}]
+
+  function openChat(agent) {
+    chatAgent = agent;
+    chatName.textContent = agent.name;
+    chatRole.textContent = agent.description || agent.category || "";
+    chatMsgs.innerHTML = "";
+    const hist = histories.get(agent.id) || [];
+    for (const m of hist) appendMsg(m.role, m.text);
+    chatPanel.classList.add("open");
+    setTimeout(() => chatInput.focus(), 50);
+  }
+  function closeChat() {
+    chatPanel.classList.remove("open");
+    chatAgent = null;
+  }
+  function appendMsg(role, text, cls = "") {
+    const div = document.createElement("div");
+    div.className = `msg ${role} ${cls}`.trim();
+    div.textContent = text;
+    chatMsgs.appendChild(div);
+    chatMsgs.scrollTop = chatMsgs.scrollHeight;
+    return div;
+  }
+
+  chatClose.addEventListener("click", closeChat);
+  chatReset.addEventListener("click", async () => {
+    if (!chatAgent) return;
+    histories.delete(chatAgent.id);
+    chatMsgs.innerHTML = "";
+    await fetch("/api/chat/reset", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agentId: chatAgent.id }),
+    });
+  });
+  chatForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!chatAgent) return;
+    const text = chatInput.value.trim();
+    if (!text) return;
+    chatInput.value = "";
+    chatSend.disabled = true;
+
+    const hist = histories.get(chatAgent.id) || [];
+    hist.push({ role: "you", text });
+    histories.set(chatAgent.id, hist);
+    appendMsg("you", text);
+    const npcDiv = appendMsg("npc", "");
+    const typing = appendMsg("npc", "thinking…", "typing");
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          agentId: chatAgent.id,
+          system: chatAgent.content,
+          message: text,
+        }),
+      });
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      let full = "";
+      let started = false;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const events = buf.split("\n\n");
+        buf = events.pop() || "";
+        for (const ev of events) {
+          const line = ev.split("\n").find(l => l.startsWith("data: "));
+          if (!line) continue;
+          try {
+            const obj = JSON.parse(line.slice(6));
+            if (obj.type === "chunk") {
+              if (!started) { typing.remove(); started = true; }
+              full += obj.text;
+              npcDiv.textContent = full;
+              chatMsgs.scrollTop = chatMsgs.scrollHeight;
+            } else if (obj.type === "error") {
+              if (!started) typing.remove();
+              npcDiv.classList.add("err");
+              npcDiv.textContent = `error: ${obj.error}`;
+            }
+          } catch {}
+        }
+      }
+      if (!started) typing.remove();
+      if (full) hist.push({ role: "npc", text: full });
+    } catch (err) {
+      typing.remove();
+      npcDiv.classList.add("err");
+      npcDiv.textContent = `error: ${err.message || err}`;
+    } finally {
+      chatSend.disabled = false;
+      chatInput.focus();
+    }
+  });
+
+  addEventListener("keydown", (e) => {
+    if (chatPanel.classList.contains("open")) {
+      if (e.key === "Escape") { e.preventDefault(); closeChat(); }
+      return; // swallow movement keys while chat is open
+    }
+    if (e.key.toLowerCase() === "e" && currentNearest) {
+      e.preventDefault();
+      openChat(currentNearest.agent);
+    }
+  }, true);
+
   // ---------- main loop ----------
   const nearbyEl = document.getElementById("nearby");
   let last = performance.now();
   document.getElementById("loading").remove();
 
   function update(dt, now) {
+    // freeze world when chat is open
+    if (chatPanel.classList.contains("open")) {
+      player.walking = false;
+      return;
+    }
     let dx = 0, dy = 0;
     if (keys["w"] || keys["arrowup"]) dy -= 1;
     if (keys["s"] || keys["arrowdown"]) dy += 1;
@@ -523,6 +703,7 @@
     ctx.restore();
 
     nearbyEl.style.display = "none";
+    currentNearest = null;
   }
 
   function renderInterior(now) {
@@ -588,9 +769,10 @@
 
     ctx.restore();
 
+    currentNearest = nearest;
     if (nearest) {
       nearbyEl.style.display = "block";
-      nearbyEl.innerHTML = `<b>${nearest.agent.name}</b> — ${nearest.agent.description || nearest.agent.category}`;
+      nearbyEl.innerHTML = `<b>${nearest.agent.name}</b> — ${nearest.agent.description || nearest.agent.category} <span style="color:#ffd966">· press <b>E</b> to talk</span>`;
     } else if (nearestItem) {
       nearbyEl.style.display = "block";
       nearbyEl.innerHTML = `<b>${nearestItem.skill.name}</b> — ${nearestItem.skill.description || "skill"}`;
