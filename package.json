@@ -17,6 +17,7 @@
     ],
     "scripts": {
         "start": "bun run --watch server.ts",
+        "sprites": "bun run scripts/gen-sprites.ts",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "lint": "eslint .",
