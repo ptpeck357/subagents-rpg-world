@@ -1,0 +1,7 @@
+node_modules
+subagents
+skills
+.claude
+public/sprites
+bun.lockb
+*.log
