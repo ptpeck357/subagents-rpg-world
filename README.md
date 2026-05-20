@@ -1,6 +1,6 @@
 # Claude Village
 
-A 2D top-down (Lords of Xulima–style) cozy RPG world where Claude Code subagents are NPCs you can walk up to and (eventually) chat with. Built with Bun + Hono on the server and vanilla HTML5 Canvas in the browser — no build step, no framework, no CDN.
+A 2D top-down (Lords of Xulima–style) cozy RPG world where Claude Code subagents are NPCs you can walk up to and **chat with**. Built with Bun + Hono on the server and vanilla HTML5 Canvas in the browser — no build step, no framework, no CDN.
 
 The village layout mirrors the `subagents/` directory tree:
 
@@ -13,20 +13,30 @@ The village layout mirrors the `subagents/` directory tree:
 
 ```bash
 bun install
-bun start                       # http://localhost:3000
+bun start                       # boots server + opens browser to localhost:3000
 ```
 
-Optional, for chat (Phase 4):
+Or, once published / linked, just:
 
 ```bash
-cp .env.example .env
-# set ANTHROPIC_API_KEY=sk-ant-...
+claude-village
 ```
+
+### Chat auth (transition period)
+
+| When | Setup |
+|---|---|
+| **Now → June 14, 2026** | `cp .env.example .env` and set `ANTHROPIC_API_KEY=sk-ant-...`. Pay-as-you-go against your API credits. |
+| **June 15, 2026 onward** | Don't set the API key. Run `claude setup-token` once to mint a long-lived OAuth token. Chat then runs on your Pro/Max plan's included Agent SDK credit ($20/mo for Pro). |
+
+Same code path either way — the SDK picks the right auth automatically. The long-lived token is the recommended path because it **won't interfere with your interactive Claude Code session's auth** (see planner.md "Auth verification" for the OAuth-refresh-race details).
 
 ## Controls
 
 - **WASD / arrows** — walk
 - **Shift** — run
+- **E** — talk to nearest NPC
+- **Esc** — close chat panel
 - Walk close to an NPC to see name + role
 
 ## Project layout
@@ -59,7 +69,8 @@ Anchor each sprite at bottom-center. Recommended sizes are written next to each 
 |---|---|---|
 | `GET` | `/api/agents` | Recursive scan of `./subagents/**/*.md` |
 | `GET` | `/api/skills` | Recursive scan of `./skills/**/SKILL.md` |
-| `POST` | `/api/chat` | Proxy to Anthropic — keeps the API key off the browser |
+| `POST` | `/api/chat` | SSE stream — runs the Claude Agent SDK with the NPC's `.md` body as system prompt; keeps the API key / OAuth token off the browser |
+| `POST` | `/api/chat/reset` | Clears the per-NPC SDK session id so the next chat starts fresh |
 
 Parsing has no YAML frontmatter: the first `# H1` is the name, the next paragraph is the description.
 
@@ -80,7 +91,7 @@ Refresh the page. A new NPC appears at the corresponding building (and table, if
 ## Stack
 
 - **Runtime** — Bun
-- **Server** — Hono (no extra middleware)
+- **Server** — Hono + `@anthropic-ai/claude-agent-sdk`
 - **Client** — Vanilla JS + HTML5 Canvas 2D, no bundler, no CDN
 
 See `CLAUDE.md` for the full set of conventions and `planner.md` for what's next.
