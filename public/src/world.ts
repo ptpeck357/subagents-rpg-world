@@ -67,6 +67,9 @@ defineSprite('building_ui', 180, 140, '#e89bd4', 'UI');
 defineSprite('building_skills', 160, 120, '#d4c069', 'SKILL HUT');
 defineSprite('npc_default', 28, 44, '#cc4444', null);
 defineSprite('player', 32, 48, '#3366cc', 'you');
+defineSprite('player_n', 32, 48, '#3366cc', null);
+defineSprite('player_e', 32, 48, '#3366cc', null);
+defineSprite('player_w', 32, 48, '#3366cc', null);
 defineSprite('tree', 52, 72, '#2f6b2f', 'tree');
 defineSprite('rock', 30, 24, '#777777', null);
 defineSprite('flower', 14, 18, '#ffaacc', null);
@@ -97,17 +100,17 @@ function rand(seed: number): number {
     return x / 233280;
 }
 
-function generateMap(): void {
+function generateMap(plazaPxX: number, plazaPxY: number): void {
     for (let y = 0; y < MAP_H; y++) {
         for (let x = 0; x < MAP_W; x++) {
             setTile(x, y, rand(x * 91 + y * 53) < 0.18 ? 1 : 0);
         }
     }
-    const cx = MAP_W / 2,
-        cy = MAP_H / 2;
+    const cx = plazaPxX / TILE,
+        cy = plazaPxY / TILE;
     for (let y = 0; y < MAP_H; y++) {
         for (let x = 0; x < MAP_W; x++) {
-            if (Math.hypot(x - cx, y - cy) < 1.6) setTile(x, y, 3);
+            if (Math.hypot(x - cx, y - cy) < 2.2) setTile(x, y, 3);
         }
     }
 }
@@ -261,41 +264,6 @@ function buildInterior(name: string, agents: Agent[] | null, skills: Skill[] | n
     };
 }
 
-function pickDoor(
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    toCx: number,
-    toCy: number,
-): DoorPlacement {
-    const horiz = Math.abs(toCx) > Math.abs(toCy);
-    if (horiz) {
-        if (toCx > 0)
-            return {
-                door: { x: x + w / 2 + 2, y: y - h / 2, w: 18, h: 44 },
-                exitOffset: { x: 28, y: 0 },
-                exitFacing: 'east',
-            };
-        return {
-            door: { x: x - w / 2 - 2, y: y - h / 2, w: 18, h: 44 },
-            exitOffset: { x: -28, y: 0 },
-            exitFacing: 'west',
-        };
-    }
-    if (toCy > 0)
-        return {
-            door: { x, y: y + 4, w: 44, h: 18 },
-            exitOffset: { x: 0, y: 28 },
-            exitFacing: 'south',
-        };
-    return {
-        door: { x, y: y - h - 4, w: 44, h: 18 },
-        exitOffset: { x: 0, y: -28 },
-        exitFacing: 'north',
-    };
-}
-
 function placeBuilding(
     category: string,
     x: number,
@@ -388,17 +356,46 @@ function scatterDecorations(): void {
     }
 }
 
+// Row-and-street layout: all buildings sit in a single row near the top of the
+// map, doors pointing south at the plaza below. A horizontal "main street" tile
+// strip runs between the buildings and the plaza, so each building's south door
+// connects to it via a short stub path, then the plaza connects to the main
+// street via one vertical artery. This keeps painted doors, entry rects, and
+// dirt paths visually consistent for every building.
+//
+// The painted door in the sprite isn't sprite-centered — it sits inside the
+// front face which itself is offset left of the anchor (because the side recede
+// occupies the right portion). `southDoor` mirrors that offset so the entry
+// rect lands underneath the visible door.
+function southDoor(bx: number, by: number, spriteW: number): DoorPlacement {
+    // Matches the door placement in scripts/sprite/buildings.ts:drawDoor —
+    // doorCenterLocal = 4 + floor(spriteW * 0.72 / 2). Offset from anchor:
+    const doorOffsetX = 4 + Math.floor((spriteW * 0.72) / 2) - spriteW / 2;
+    return {
+        door: { x: bx + doorOffsetX, y: by - 4, w: 44, h: 18 },
+        exitOffset: { x: 0, y: 28 },
+        exitFacing: 'south',
+    };
+}
+
 export function layoutWorld(
     categories: string[],
     byCategory: Record<string, Agent[]>,
     skillsRes: Skill[],
 ): void {
-    generateMap();
+    const total = categories.length + 1; // +1 for skill hut
+    const buildingRowY = Math.floor(WORLD_H * 0.28);
+    const streetY = Math.floor(WORLD_H * 0.55);
+    const wcx = WORLD_W / 2;
+    const plazaY = Math.floor(WORLD_H * 0.78);
 
-    const wcx = WORLD_W / 2,
-        wcy = WORLD_H / 2;
-    const ringR = 340;
-    const total = categories.length + 1;
+    generateMap(wcx, plazaY);
+
+    // Distribute buildings evenly across the world width.
+    const xPositions: number[] = [];
+    for (let i = 0; i < total; i++) {
+        xPositions.push(Math.floor(WORLD_W * ((i + 0.5) / total)));
+    }
 
     type Slot = {
         kind: 'building' | 'skill';
@@ -410,27 +407,36 @@ export function layoutWorld(
     const slots: Slot[] = [];
     for (let i = 0; i < categories.length; i++) {
         const cat = categories[i];
-        const ang = (i / total) * Math.PI * 2 - Math.PI / 2;
-        const bx = wcx + Math.cos(ang) * ringR;
-        const by = wcy + Math.sin(ang) * ringR;
+        const bx = xPositions[i];
+        const by = buildingRowY;
         const sprite = sprites[`building_${cat}`] ?? sprites.building_api;
-        const placement = pickDoor(bx, by, sprite.w, sprite.h, wcx - bx, wcy - by);
-        slots.push({ kind: 'building', cat, x: bx, y: by, placement });
+        slots.push({
+            kind: 'building',
+            cat,
+            x: bx,
+            y: by,
+            placement: southDoor(bx, by, sprite.w),
+        });
     }
-    const skillAng = (categories.length / total) * Math.PI * 2 - Math.PI / 2;
-    const sbx = wcx + Math.cos(skillAng) * ringR;
-    const sby = wcy + Math.sin(skillAng) * ringR;
-    const skillPlacement = pickDoor(
-        sbx,
-        sby,
-        sprites.building_skills.w,
-        sprites.building_skills.h,
-        wcx - sbx,
-        wcy - sby,
-    );
-    slots.push({ kind: 'skill', cat: 'skills', x: sbx, y: sby, placement: skillPlacement });
+    const sbx = xPositions[categories.length];
+    const sby = buildingRowY;
+    slots.push({
+        kind: 'skill',
+        cat: 'skills',
+        x: sbx,
+        y: sby,
+        placement: southDoor(sbx, sby, sprites.building_skills.w),
+    });
 
-    for (const s of slots) paintPath(wcx, wcy, s.placement.door.x, s.placement.door.y);
+    // Paint paths: stub from each door south to the main street, then a horizontal
+    // street across all stubs, then a vertical artery from the street to the plaza.
+    const streetMinX = Math.min(...slots.map((s) => s.placement.door.x));
+    const streetMaxX = Math.max(...slots.map((s) => s.placement.door.x));
+    paintPath(streetMinX, streetY, streetMaxX, streetY);
+    for (const s of slots) {
+        paintPath(s.placement.door.x, s.placement.door.y, s.placement.door.x, streetY);
+    }
+    paintPath(wcx, streetY, wcx, plazaY);
 
     tileLayer = bakeTileLayer();
 

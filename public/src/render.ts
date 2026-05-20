@@ -1,5 +1,16 @@
 import type { Building, Npc, Player, SkillItem } from './types';
 import { ZOOM, WORLD_W, WORLD_H, buildings, decorations, sprites, tileLayer } from './world';
+import type { Facing } from './types';
+
+function playerSpriteKey(facing: Facing): string {
+    return facing === 'north'
+        ? 'player_n'
+        : facing === 'east'
+          ? 'player_e'
+          : facing === 'west'
+            ? 'player_w'
+            : 'player';
+}
 
 let canvas: HTMLCanvasElement = null as unknown as HTMLCanvasElement;
 let ctx: CanvasRenderingContext2D = null as unknown as CanvasRenderingContext2D;
@@ -43,21 +54,27 @@ function drawSprite(key: string, x: number, y: number, scale = 1): void {
     }
 }
 
-function drawBuildingExtras(b: Building, now: number): void {
-    const d = b.door;
-    const dx = d.x - d.w / 2,
-        dy = d.y - d.h / 2;
-    const pulse = 0.65 + Math.sin(now * 0.004) * 0.25;
-    ctx.fillStyle = `rgba(255, 217, 102, ${0.55 * pulse})`;
-    ctx.fillRect(dx, dy, d.w, d.h);
-    ctx.strokeStyle = `rgba(255, 217, 102, ${pulse})`;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(dx + 0.5, dy + 0.5, d.w - 1, d.h - 1);
-    ctx.fillStyle = `rgba(255, 217, 102, ${pulse})`;
-    ctx.font = 'bold 14px ui-sans-serif';
+function drawBuildingSign(b: Building): void {
+    const name = b.name.toUpperCase();
+    ctx.font = 'bold 9px ui-sans-serif';
+    const textW = Math.ceil(ctx.measureText(name).width);
+    const padX = 5,
+        padY = 2;
+    const signW = textW + padX * 2;
+    const signH = 9 + padY * 2;
+    // Sit the sign on the wall just below the roof eave (above the windows).
+    // Door x already accounts for the sprite's painted-door offset.
+    const signX = Math.round(b.door.x - signW / 2);
+    const signY = Math.round(b.y - b.h * 0.62 + 2);
+    ctx.fillStyle = '#3a2616'; // dark wood
+    ctx.fillRect(signX, signY, signW, signH);
+    ctx.fillStyle = '#1a0e08';
+    ctx.fillRect(signX, signY, signW, 1);
+    ctx.fillRect(signX, signY + signH - 1, signW, 1);
+    ctx.fillStyle = '#ffd966'; // warm gold text
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('▼', d.x, dy - 8);
+    ctx.fillText(name, b.door.x, signY + signH / 2 + 0.5);
 }
 
 function drawNpcLabel(npc: Npc, highlighted: boolean): void {
@@ -120,7 +137,7 @@ export function hideNearby(): void {
     nearbyEl.classList.add('hidden');
 }
 
-export function renderVillage(player: Player, now: number): void {
+export function renderVillage(player: Player): void {
     const viewW = canvas.width / ZOOM;
     const viewH = canvas.height / ZOOM;
     const camX =
@@ -155,14 +172,14 @@ export function renderVillage(player: Player, now: number): void {
             y: b.y,
             draw: () => {
                 drawSprite(b.sprite, b.x, b.y);
-                drawBuildingExtras(b, now);
+                drawBuildingSign(b);
             },
         });
     drawables.push({
         y: player.y,
         draw: () => {
             const bob = player.walking ? Math.sin(player.walkPhase * 2) * 2 : 0;
-            drawSprite('player', player.x, player.y + bob);
+            drawSprite(playerSpriteKey(player.facing), player.x, player.y + bob);
         },
     });
     drawables.sort((a, b) => a.y - b.y);
@@ -264,7 +281,7 @@ export function renderInterior(building: Building, player: Player, now: number):
         y: player.y,
         draw: () => {
             const bob = player.walking ? Math.sin(player.walkPhase * 2) * 2 : 0;
-            drawSprite('player', player.x, player.y + bob);
+            drawSprite(playerSpriteKey(player.facing), player.x, player.y + bob);
         },
     });
     drawables.sort((a, b) => a.y - b.y);

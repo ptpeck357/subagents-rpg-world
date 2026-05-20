@@ -63,11 +63,17 @@ function bootstrap(): void {
     layoutWorld(categories, byCategory, skillsRes);
 
     // ---------- player + scene ----------
-    const wcx = WORLD_W / 2,
-        wcy = WORLD_H / 2;
-    const player: Player = { x: wcx, y: wcy + 80, facing: 'south', walking: false, walkPhase: 0 };
+    const wcx = WORLD_W / 2;
+    const player: Player = {
+        x: wcx,
+        y: Math.floor(WORLD_H * 0.78), // start at the plaza
+        facing: 'north',
+        walking: false,
+        walkPhase: 0,
+    };
     let scene: Scene = 'village';
     let currentBuilding: Building | null = null;
+    let enterCooldown = 0; // seconds — suppresses door entry briefly after exiting
 
     // ---------- input ----------
     const keys: Record<string, boolean> = {};
@@ -93,6 +99,7 @@ function bootstrap(): void {
         player.x = b.door.x + b.exitOffset.x;
         player.y = b.door.y + b.exitOffset.y;
         player.facing = b.exitFacing;
+        enterCooldown = 0.4;
     }
 
     // ---------- chat panel (DOM) ----------
@@ -325,18 +332,22 @@ function bootstrap(): void {
             player.walkPhase += dt * (keys['shift'] ? 12 : 8);
         }
 
+        if (enterCooldown > 0) enterCooldown = Math.max(0, enterCooldown - dt);
+
         if (scene === 'village') {
-            const pad = 12;
-            for (const b of buildings) {
-                const d = b.door;
-                if (
-                    player.x > d.x - d.w / 2 - pad &&
-                    player.x < d.x + d.w / 2 + pad &&
-                    player.y > d.y - d.h / 2 - pad &&
-                    player.y < d.y + d.h / 2 + pad
-                ) {
-                    enterBuilding(b);
-                    break;
+            if (enterCooldown === 0) {
+                const pad = 12;
+                for (const b of buildings) {
+                    const d = b.door;
+                    if (
+                        player.x > d.x - d.w / 2 - pad &&
+                        player.x < d.x + d.w / 2 + pad &&
+                        player.y > d.y - d.h / 2 - pad &&
+                        player.y < d.y + d.h / 2 + pad
+                    ) {
+                        enterBuilding(b);
+                        break;
+                    }
                 }
             }
         } else {
@@ -355,7 +366,7 @@ function bootstrap(): void {
         last = now;
         update(dt, now);
         clearFrame();
-        if (scene === 'village') renderVillage(player, now);
+        if (scene === 'village') renderVillage(player);
         else renderInterior(currentBuilding!, player, now);
         requestAnimationFrame(frame);
     }
