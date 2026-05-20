@@ -1,6 +1,6 @@
 # Claude Village
 
-A 2D top-down (Lords of Xulima–style) cozy RPG world where Claude Code subagents are NPCs you can walk up to and **chat with**. Built with Bun + Hono on the server and vanilla HTML5 Canvas + Tailwind in the browser — no build step, no framework.
+A 2D top-down (Lords of Xulima–style) cozy RPG world where Claude Code subagents are NPCs you can walk up to and **chat with**. Built with Bun + Hono on the server and HTML5 Canvas + Tailwind in the browser. Client is TypeScript bundled on demand by `Bun.build` — no dist artifacts, no separate build step to run.
 
 The village layout mirrors the `subagents/` directory tree:
 
@@ -86,7 +86,7 @@ The engine looks for PNGs under `public/sprites/`. Anything missing falls back t
 - World decor: `tree.png`, `rock.png`, `flower.png`
 - Interior decor: `table.png`, `skill_item.png`, `bookshelf.png`, `lamp.png`, `plant.png`, `crate.png`
 
-Anchor each sprite at bottom-center. Recommended sizes are written next to each `defineSprite()` call in `public/game.ts`.
+Anchor each sprite at bottom-center. Recommended sizes are written next to each `defineSprite()` call in `public/src/world.ts`.
 
 ## API
 
@@ -117,6 +117,7 @@ Refresh the page. A new NPC appears at the corresponding building (and table, if
 
 - **Runtime** — Bun
 - **Server** — Hono + `@anthropic-ai/claude-agent-sdk`
-- **Client** — TypeScript (transpiled on the fly by `server.ts` via `Bun.Transpiler`) + HTML5 Canvas 2D + Tailwind (Play CDN), no bundler
+- **Client** — TypeScript modules under `public/src/` bundled by `Bun.build` on every `/game.js` request (cached by max source mtime) + HTML5 Canvas 2D + Tailwind (Play CDN)
+- **Tooling** — prettier, eslint flat config + typescript-eslint, scripts `format`/`format:check`/`lint`/`lint:fix`
 
 See `CLAUDE.md` for the full set of conventions and `planner.md` for what's next.

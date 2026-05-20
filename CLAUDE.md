@@ -91,7 +91,7 @@ type Skill = {
 
 - Conventional Commits: `feat:`, `fix:`, `chore:`, `docs:`
 - No `npm` — use `bun add` / `bun remove`
-- Keep `server.ts` lean (~220 line ceiling now that SDK chat + CLI + dir guards + the bundle route live there); if it grows past that, something is wrong
+- Keep `server.ts` lean (~230 line ceiling now that SDK chat + CLI + dir guards + the bundle route live there); if it grows past that, something is wrong
 - Client modules (`public/src/`) are individually small — keep them that way. If `world.ts` or `render.ts` crosses ~500 lines, split (e.g. break `sprites` or `interior` out)
 - `public/index.html` stays a thin shell — markup, Tailwind classes, two script tags (Tailwind + the module entry). Don't put game logic in here.
 - Client code is split across `public/src/{types,world,render,main}.ts`. Keep the module boundaries: `types.ts` exports only types; `world.ts` owns world state + collision + layout (no canvas); `render.ts` owns everything that touches `ctx`; `main.ts` is the entry point and owns player/scene/chat state.
