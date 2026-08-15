@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { Hono } from 'hono';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
 // Resolve content dirs relative to this file so `claude-village` works from any cwd.
@@ -8,6 +9,33 @@ const ROOT = import.meta.dir;
 const SUBAGENTS_DIR = `${ROOT}/subagents`;
 const SKILLS_DIR = `${ROOT}/skills`;
 const PUBLIC_DIR = `${ROOT}/public`;
+
+// Auth: hand the SDK a long-lived token from `claude setup-token`. Without one
+// the spawned CLI falls back to the shared credentials file and races the
+// user's interactive session for the same refreshable OAuth token.
+const TOKEN_FILE = `${homedir()}/.config/claude-village/token`;
+
+function longLivedToken(): string | null {
+    const fromEnv = process.env.CLAUDE_VILLAGE_TOKEN?.trim();
+    if (fromEnv) return fromEnv;
+    if (!existsSync(TOKEN_FILE)) return null;
+    return readFileSync(TOKEN_FILE, 'utf8').trim() || null;
+}
+
+function sdkEnv(): Record<string, string | undefined> | undefined {
+    const token = longLivedToken();
+    if (!token) return undefined;
+    const env: Record<string, string | undefined> = {
+        ...process.env,
+        CLAUDE_CODE_OAUTH_TOKEN: token,
+    };
+    // An API key outranks the OAuth token, so drop it — otherwise a stale key
+    // silently bills pay-as-you-go instead of the plan's Agent SDK credit.
+    delete env.ANTHROPIC_API_KEY;
+    return env;
+}
+
+const SDK_ENV = sdkEnv();
 
 type Agent = {
     id: string;
@@ -120,6 +148,7 @@ app.post('/api/chat', async (c) => {
         prompt: message,
         options: {
             systemPrompt: enrichedSystem,
+            ...(SDK_ENV ? { env: SDK_ENV } : {}),
             ...(resume ? { resume } : {}),
         },
     });
@@ -213,6 +242,15 @@ const PORT = Number(process.env.PORT ?? 3000);
 Bun.serve({ port: PORT, fetch: app.fetch });
 const url = `http://localhost:${PORT}`;
 console.log(`Claude Village running at ${url}`);
+if (SDK_ENV) {
+    console.log('Chat auth: long-lived OAuth token (Pro/Max plan Agent SDK credit)');
+} else if (process.env.ANTHROPIC_API_KEY) {
+    console.log('Chat auth: ANTHROPIC_API_KEY (pay-as-you-go)');
+} else {
+    console.log(
+        `Chat auth: none configured — run \`claude setup-token\` and save the output to ${TOKEN_FILE}`,
+    );
+}
 
 if (!process.env.CLAUDE_VILLAGE_NO_OPEN) {
     const opener =

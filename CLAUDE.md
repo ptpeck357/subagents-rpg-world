@@ -62,7 +62,7 @@ claude-village             # once linked/published via the bin entry
 
 Server runs on `http://localhost:3000` and auto-opens the user's default browser. Set `CLAUDE_VILLAGE_NO_OPEN=1` to suppress.
 
-Auth for chat: SDK picks whatever is available. Before 2026-06-15, set `ANTHROPIC_API_KEY` in `.env` (pay-as-you-go). After 2026-06-15, run `claude setup-token` once for a long-lived OAuth token that draws from Pro/Max plan credit and **does not** race-refresh with the user's interactive Claude Code session. See `planner.md` Phase 7 "Auth verification".
+Auth for chat: `server.ts` resolves a long-lived OAuth token (`claude setup-token`) from `CLAUDE_VILLAGE_TOKEN` or `~/.config/claude-village/token` and passes it to `query()` as `options.env.CLAUDE_CODE_OAUTH_TOKEN`, deleting `ANTHROPIC_API_KEY` from that child env. This is deliberate: if neither var is set in the env the SDK hands its spawned CLI, the CLI falls back to the shared credentials file and race-refreshes the user's interactive Claude Code session (see `planner.md` Phase 7 "Auth verification"). No token → falls back to inherited env / `ANTHROPIC_API_KEY` (pay-as-you-go). Startup logs the active mode.
 
 ## API surface
 
@@ -102,7 +102,7 @@ type Skill = {
 
 - Conventional Commits: `feat:`, `fix:`, `chore:`, `docs:`
 - No `npm` — use `bun add` / `bun remove`
-- Keep `server.ts` lean (~230 line ceiling now that SDK chat + CLI + dir guards + the bundle route live there); if it grows past that, something is wrong
+- Keep `server.ts` lean (~270 line ceiling now that SDK chat + auth resolution + CLI + dir guards + the bundle route live there); if it grows past that, something is wrong
 - Client modules (`public/src/`) are individually small — keep them that way. If `world.ts` or `render.ts` crosses ~500 lines, split (e.g. break `sprites` or `interior` out)
 - `public/index.html` stays a thin shell — markup, Tailwind classes, two script tags (Tailwind + the module entry). Don't put game logic in here.
 - Client code is split across `public/src/{types,world,render,main}.ts`. Keep the module boundaries: `types.ts` exports only types; `world.ts` owns world state + collision + layout (no canvas); `render.ts` owns everything that touches `ctx`; `main.ts` is the entry point and owns player/scene/chat state.
