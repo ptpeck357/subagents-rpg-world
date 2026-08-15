@@ -10,9 +10,13 @@ Project tracker for Claude Code. Update this file as tasks move through states.
 
 ## Session Handoff
 
-**Last touched:** 2026-05-20 (sprite atlas + 4-direction player + south-of-plaza exit cooldown + database silo + plainer rug + visible player faces + village layout overhaul: single row of buildings with south-facing painted doors aligned to entry rects + main street; removed pulsing door indicator; added wooden name plaques above each door).
+**Last touched:** 2026-08-14 (Phase 7 follow-up — long-lived OAuth token auth). Before that: 2026-05-20 (sprite atlas + 4-direction player + south-of-plaza exit cooldown + database silo + plainer rug + visible player faces + village layout overhaul: single row of buildings with south-facing painted doors aligned to entry rects + main street; removed pulsing door indicator; added wooden name plaques above each door).
 
 **State of the world:** village is playable end-to-end with painted art. All 23 sprites live under `public/sprites/`. Player spawns at the plaza in the south; the 8 buildings (7 categories + Skill Hut) sit in one row across the north with their painted doors facing the player. A T-shaped path (per-door stubs + horizontal main street + central artery to plaza) connects everything. Each building shows a small gold-on-dark-wood **name plaque** above its door — no separate door indicator. Walking up to a painted door triggers entry because `southDoor(bx, by, spriteW)` aligns the entry rect with the painted door's horizontal offset on each sprite. Interiors have bookshelves / lamps / plants / crates. NPCs (SDK-backed chat) and skills (modal) work. Tailwind for UI. Client is an ES-module bundle (`Bun.build`) of `public/src/{types,world,render,main}.ts`; bundling is on-demand from `server.ts` and cached by max source mtime. `claude-village` is `bun link`-ed on this machine; `/village` and `/village-stop` symlinks are live in `~/.claude/commands/`. World is **1792×1152** at a 1.6× render zoom; camera follows the player. Prettier + eslint baseline passes; `bunx tsc --noEmit` is clean. Local dev server on :3000 is **not currently running**.
+
+**Shipped 2026-08-14:**
+
+- **Phase 7 auth swap** — `server.ts` gained `longLivedToken()` (reads `CLAUDE_VILLAGE_TOKEN`, else `~/.config/claude-village/token`) and `sdkEnv()`, which builds the child env for `query()`: `CLAUDE_CODE_OAUTH_TOKEN` set, `ANTHROPIC_API_KEY` deleted. Resolved once at boot into `SDK_ENV`; the chat route spreads `...(SDK_ENV ? { env: SDK_ENV } : {})` into `options`. No token → `options.env` is omitted entirely and the SDK inherits `process.env` exactly as before, so the API-key path is untouched. Startup logs which of the three states is active (token / API key / nothing configured). `.env.example`, README "Chat auth", and CLAUDE.md updated; `server.ts` line ceiling in CLAUDE.md bumped 230 → 270. **Verified so far:** all three banner branches booted on scratch ports with `env -u`, plus `tsc --noEmit` / eslint / prettier clean. **Not verified:** the live SDK call under a real token — see _Open prerequisites_. Don't mark Phase 7 fully done until that runs.
 
 **Shipped 2026-05-20:**
 
@@ -42,14 +46,31 @@ Project tracker for Claude Code. Update this file as tasks move through states.
 - **Module split** (~990-line `public/game.ts` → 4 files under `public/src/`): `types.ts` (all shared types), `world.ts` (constants, sprite table + 20 `defineSprite()` calls, tilemap, `pickDoor`/`placeBuilding`/`placeSkillHut`/`scatterDecorations`/`paintPath`/`isOpenGround`/`buildInterior`, collision, `layoutWorld()`), `render.ts` (`drawSprite` + draw helpers + `renderVillage`/`renderInterior` + `showNearby`/`hideNearby` + `clearFrame`, `setRenderContext` once-init), `main.ts` (data fetch, empty-state, canvas setup, player/scene state, input, chat panel + skill modal, `update()`/`frame()`, `enterBuilding`/`exitBuilding`). Server pipeline swapped from `Bun.Transpiler` (single-file TS strip) to `Bun.build({ format: 'esm' })` (bundles `public/src/main.ts` → `/game.js`), cached by max mtime across `public/src/*.ts`. `index.html` script tag now `type="module"`. Old `public/game.ts` deleted.
 - `eslint.config.js` — dropped the deprecated `tseslint.config(...spread)` wrapper (TS6387) in favor of a plain flat-config array. Runtime behavior unchanged; lint + format still pass.
 
-**Next session should start with:** Phase 7 follow-up — June 15 OAuth swap. Calendar-gated, ~26 days out. After that, Phase 2/3 polish: per-agent NPC sprites (`npc_<id>.png` with `npc_default.png` fallback), 4-frame walk-cycle animation per direction, optional portrait sprites in the chat panel. Phase 6 polish (day/night, idle anims, sound, mobile touch) remains low-priority. Client is bundled — `bun build` runs per `/game.js` request when any source under `public/src/` changes. To resume work locally: `bun start` (boots :3000 + watches + opens browser).
+**Next session should start with:** the token setup + live chat verification in _Open prerequisites_ below (blocked on the user; ~2 minutes once they run `claude setup-token`). Then Phase 2/3 polish: per-agent NPC sprites (`npc_<id>.png` with `npc_default.png` fallback), 4-frame walk-cycle animation per direction, optional portrait sprites in the chat panel. Phase 6 polish (day/night, idle anims, sound, mobile touch) remains low-priority. Client is bundled — `bun build` runs per `/game.js` request when any source under `public/src/` changes. To resume work locally: `bun start` (boots :3000 + watches + opens browser).
 
 **Open prerequisites that block other work:**
 
-- Chat won't actually return responses until `ANTHROPIC_API_KEY` is set in `.env` (today's path) — or until 2026-06-15 when the SDK runs on the Pro plan's free credit via `claude setup-token`. Server gracefully returns the SDK error if unset.
+- `[!]` **Chat returns nothing until the token exists on this machine.** The code path shipped 2026-08-14 and all three auth branches were smoke-tested by reading the startup banner, but **the live SDK call has never run against a real token** — that's the one thing still unverified end-to-end. `claude setup-token` is an interactive browser login, so the user must run it; Claude Code can't. Steps, in order:
+    1. User runs `claude setup-token` (in a Claude Code session: type `! claude setup-token`). Prints a ~1-year OAuth token.
+    2. `mkdir -p ~/.config/claude-village`
+    3. Paste the token into `~/.config/claude-village/token` (single line, no `export`, no quotes — `longLivedToken()` does a bare `.trim()`). `CLAUDE_VILLAGE_TOKEN` in the env works instead and wins over the file.
+    4. `chmod 600 ~/.config/claude-village/token`
+    5. Restart the server — auth is read once at boot (see gotchas). Banner should read `Chat auth: long-lived OAuth token (Pro/Max plan Agent SDK credit)`. Any _other_ line means step 3 didn't land — but the happy line only proves a non-empty string was found, **not** that the token is valid, so it is a necessary check, not a sufficient one. Step 6 is the real test.
+    6. Walk up to any NPC, press **E**, send a message. Confirm tokens stream into the bubble, then send a second message to the same NPC and confirm it remembers the first (proves the `resume` session id round-trips under token auth).
+    7. While that chat is running, confirm the user's own interactive Claude Code session still works and doesn't demand re-login — that's the whole point of the isolation. If it _does_ get kicked, the token isn't reaching the child env; check `SDK_ENV` is non-null and `env.ANTHROPIC_API_KEY` is gone.
+    8. Tick this item off and record the result under a `Shipped` heading.
+
+- Until then the server degrades honestly rather than crashing: no token + no key → banner says "none configured", and `/api/chat` surfaces the SDK's auth error through the existing SSE `{type:'error'}` frame.
 
 **Active gotchas to remember:**
 
+- Auth is resolved **once at boot** into `SDK_ENV`. Writing the token file while the server is running won't take effect until restart (`bun start` watches source, not `~/.config`)
+- Don't "simplify" `sdkEnv()` away by letting the SDK inherit `process.env`: with neither `CLAUDE_CODE_OAUTH_TOKEN` nor `ANTHROPIC_API_KEY` in the child env, the spawned CLI copies the shared `.credentials.json` and joins the refresh race that kicks the user's interactive session to a login prompt. Verified against the SDK bundle (`sdk.mjs` checks both vars before falling back)
+- `env` is only passed to `query()` when a token exists (`...(SDK_ENV ? { env: SDK_ENV } : {})`). Passing a partial `env` unconditionally would wipe the child's `PATH`/`HOME` and break the API-key fallback
+- Never read, write, or commit the token file's contents — it's a live credential. `.env` is gitignored (verified: `.gitignore:103`, untracked, never committed) and `~/.config/claude-village/token` lives outside the repo on purpose. Only `.env.example` (placeholders) is checked in
+- The banner tests **presence, not validity**. `longLivedToken()` returns any non-empty trimmed string, so a truncated paste, a stale token, or an expired one all still print `Chat auth: long-lived OAuth token`. An expired token therefore looks perfectly healthy at boot and fails only at chat time, as an auth error in the SSE `{type:'error'}` frame → the chat bubble. If chat breaks and the banner looks fine, re-mint before debugging anything else
+- **Token expires ~1 year after minting** — if set up around 2026-08, expect it to die around **2027-08**. `claude setup-token` again and overwrite the file; no code change needed
+- Bun auto-loads `.env` into `process.env`, which is why `CLAUDE_VILLAGE_TOKEN` in `.env` works as well as the config file — that's the mechanism `.env.example` documents. It's also why a stale `ANTHROPIC_API_KEY` left in `.env` is harmless once a token exists: `sdkEnv()` deletes the key from the SDK's child env
 - `Bun.file()` has **no** `.stat()` method — use `BunFile.lastModified` (epoch ms) for mtime
 - Background-session isolation guard is **off** for this repo via `.claude/settings.json` — don't re-enable unless you intentionally want bg sessions to clone into a worktree
 - `Agent` and `Skill` types live in two places: `server.ts` (server-side) + `public/src/types.ts` (client-side). Kept in sync by hand because the server and client are bundled separately. If they drift, the client deserializes garbage.
@@ -78,7 +99,7 @@ Project tracker for Claude Code. Update this file as tasks move through states.
 
 Phases 1, 2, 3, 4, 5, 7, 8, 9 are largely shipped — see their sections for residual checkboxes. Phase 6 defensive empty-state landed 2026-05-19; sprite atlas + 4-direction player + exit cooldown landed 2026-05-20. What's open, in the order it should be tackled:
 
-1. **Phase 7 follow-up — June 15 OAuth swap.** Calendar-gated. As soon as 2026-06-15 lands: remove `ANTHROPIC_API_KEY` requirement, document `claude setup-token`, point users at Pro plan included credit.
+1. **Phase 7 — token setup + live chat verification.** `[!]` Code shipped 2026-08-14; blocked on the user running `claude setup-token`. Nothing else should be called done-done until chat has actually streamed a response, because everything below assumes a working village. Steps in _Open prerequisites_.
 2. **Phase 2/3 — animation + per-agent variants.** Procedural atlas now ships; remaining gaps are 4-frame walk-cycles per direction, per-agent NPC sprites (`npc_<id>.png` w/ fallback), and portrait sprites in the chat panel.
 3. **Phase 6 polish — day/night cycle, idle NPC animations, ambient sound, mobile touch controls.** Real polish; do last.
 
@@ -210,8 +231,9 @@ Both reuse Claude Code's existing login → zero API key needed. SDK is cleaner 
 - [x] After server boots, auto-open default browser (`open` / `xdg-open` / `start` per platform); `CLAUDE_VILLAGE_NO_OPEN=1` to disable
 - [x] Browser-side chat panel: right sidebar, **E** opens nearest-NPC chat, **Esc** closes, per-NPC history kept client-side, SSE streaming render, reset button
 - [x] `POST /api/chat/reset` endpoint — clears the per-NPC SDK session id on demand so the next chat starts a fresh thread (paired with the chat panel's reset button)
-- [ ] Replace `ANTHROPIC_API_KEY` requirement: after June 15, 2026 — remove env check, document `claude setup-token` long-lived OAuth path. Also pass the long-lived token to the SDK explicitly so it never reuses the parent Claude Code session's short-lived OAuth (see "Auth verification" below).
+- [x] Replace `ANTHROPIC_API_KEY` requirement — shipped 2026-08-14. `server.ts` resolves a long-lived token from `CLAUDE_VILLAGE_TOKEN` or `~/.config/claude-village/token` and passes it to `query()` as `options.env.CLAUDE_CODE_OAUTH_TOKEN`, deleting `ANTHROPIC_API_KEY` from that child env. API key remains the fallback when no token exists. Startup banner prints the active mode.
 - [x] Update `README.md`: prereqs, run command, dual auth paths
+- [!] **Verify the token path end-to-end against a real token.** Blocked on the user running `claude setup-token` (interactive browser login). Code + banner smoke-tested 2026-08-14; the live SDK call under token auth is still unproven. Full steps in _Open prerequisites_ above.
 
 ### Distribution model (locked: clone-only, no npm publish)
 
@@ -226,14 +248,14 @@ bun start                # or `bun link` once, then `claude-village` from anywhe
 
 No `npm publish`, no `bunx`. Means: no build artifacts in the repo, no minification, no version-bump dance. The cost of editing source is the cost of pulling.
 
-### Dual auth modes (transition period)
+### Dual auth modes (transition complete 2026-08-14)
 
-| Mode                     | When                                   | Setup                                                                                                                                               |
-| ------------------------ | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Now → June 14, 2026**  | Pay-as-you-go via existing API credits | Set `ANTHROPIC_API_KEY` in env; SDK uses it. User's $10 credit balance covers casual use                                                            |
-| **June 15, 2026 onward** | Pro plan included quota                | Unset `ANTHROPIC_API_KEY`; run `claude setup-token` once; SDK uses the long-lived OAuth token. Zero collision with interactive Claude Code sessions |
+| Mode                                    | Setup                                                                                                                                                              |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Long-lived token** (current, default) | `claude setup-token` → `~/.config/claude-village/token` (or `CLAUDE_VILLAGE_TOKEN`). Draws Pro/Max plan Agent SDK credit. Zero collision with interactive sessions |
+| **API key** (legacy fallback)           | Set `ANTHROPIC_API_KEY`; used only when no token is found. Pay-as-you-go                                                                                           |
 
-Same code path either way — SDK auth precedence handles the switch automatically.
+Resolution is explicit in `server.ts` (`longLivedToken()` / `sdkEnv()`), not left to SDK precedence — when a token exists the API key is deleted from the SDK's child env so plan credit is what bills.
 
 ### Why this is worth doing
 
@@ -252,7 +274,7 @@ Same code path either way — SDK auth precedence handles the switch automatical
 
 What's good:
 
-- Post **2026-06-15**, the Agent SDK + `claude -p` run on the user's Pro/Max plan directly — no `ANTHROPIC_API_KEY`, no second billing path.
+- Since **2026-06-15** (now past), the Agent SDK + `claude -p` run on the user's Pro/Max plan directly — no `ANTHROPIC_API_KEY`, no second billing path.
 - Pro plan: $20/month of Agent SDK credit. Max 20×: $200/month. **Separate budget** from interactive Claude Code usage, so claude-village chat won't eat into the user's coding quota.
 - SDK is a wrapper around the Claude Code CLI — same OAuth login is reused transparently.
 

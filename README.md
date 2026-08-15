@@ -41,14 +41,22 @@ After that, inside any Claude Code session:
 
 The slash command files live in this repo (`.claude/commands/`); the symlinks point Claude Code at them. Logs go to `/tmp/claude-village.log`. One global village process at a time. Move the repo → re-link.
 
-### Chat auth (transition period)
+### Chat auth (one-time)
 
-| When                     | Setup                                                                                                                                                                    |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Now → June 14, 2026**  | `cp .env.example .env` and set `ANTHROPIC_API_KEY=sk-ant-...`. Pay-as-you-go against your API credits.                                                                   |
-| **June 15, 2026 onward** | Don't set the API key. Run `claude setup-token` once to mint a long-lived OAuth token. Chat then runs on your Pro/Max plan's included Agent SDK credit ($20/mo for Pro). |
+Mint a long-lived OAuth token and drop it where the server can find it:
 
-Same code path either way — the SDK picks the right auth automatically. The long-lived token is the recommended path because it **won't interfere with your interactive Claude Code session's auth** (see planner.md "Auth verification" for the OAuth-refresh-race details).
+```bash
+claude setup-token                                    # prints a ~1-year token
+mkdir -p ~/.config/claude-village
+pbpaste > ~/.config/claude-village/token              # or paste it into the file
+chmod 600 ~/.config/claude-village/token
+```
+
+Chat then runs on your Pro/Max plan's included Agent SDK credit ($20/mo on Pro, $200/mo on Max 20×) — a **separate budget** from your interactive Claude Code usage. `CLAUDE_VILLAGE_TOKEN` in the environment works too and takes precedence over the file.
+
+Why a dedicated token rather than just letting the SDK reuse your login: concurrent Claude Code processes all refresh the _same_ OAuth access token with rotating refresh tokens, and only one refresh wins — everything else gets invalidated. Without a long-lived token, playing the village would randomly kick your main Claude Code session back to a login prompt. The server passes the token to the SDK explicitly so the two auth paths never touch.
+
+**Legacy path:** if no token is found, the server falls back to `ANTHROPIC_API_KEY` (pay-as-you-go). When a token _is_ found the API key is stripped from the SDK's environment, so plan credit is what actually bills. The startup banner prints which mode is active.
 
 ## Controls
 
